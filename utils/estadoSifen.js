@@ -6,14 +6,48 @@
  */
 
 /**
+ * setapi NO devuelve el XML crudo: cuando SET responde XML, lo parsea con
+ * xml2js y resuelve un OBJETO (claves con namespace, ej. 'ns2:dCodRes').
+ * Los extractores de abajo hacían .match() sobre ese objeto y fallaban
+ * siempre ("xmlContent.match is not a function"), con lo cual TODA
+ * respuesta real de SET terminaba en codigo null -> estado rechazado,
+ * aunque SET hubiera aceptado el documento.
+ *
+ * Esta función busca un campo recursivamente en la respuesta parseada,
+ * ignorando el prefijo de namespace.
+ *
+ * @param {object} respuesta   objeto parseado por xml2js
+ * @param {string} nombreCampo p.ej. 'dCodRes'
+ * @param {function} [validador] filtro opcional sobre el valor encontrado
+ * @returns {string|null}
+ */
+function buscarEnRespuesta(respuesta, nombreCampo, validador = null, profundidad = 0) {
+  if (respuesta === null || typeof respuesta !== 'object' || profundidad > 8) return null;
+  for (const [clave, valor] of Object.entries(respuesta)) {
+    const nombre = clave.includes(':') ? clave.split(':').pop() : clave;
+    if (nombre === nombreCampo && (typeof valor === 'string' || typeof valor === 'number')) {
+      const texto = String(valor).trim();
+      if (!validador || validador(texto)) return texto;
+    }
+    const anidado = buscarEnRespuesta(valor, nombreCampo, validador, profundidad + 1);
+    if (anidado !== null) return anidado;
+  }
+  return null;
+}
+
+/**
  * Extrae el código de retorno de una respuesta SOAP
  * Soporta ambos formatos: <ns2:dCodRes> (SIFEN v150) y <codigoRetorno> (genérico)
  *
- * @param {string} xmlContent - Contenido XML de la respuesta SOAP
+ * @param {string|object} xmlContent - XML crudo u objeto parseado por setapi
  * @returns {string|null} Código de retorno o null si no encuentra
  */
 function extraerCodigoRetorno(xmlContent) {
   try {
+    if (xmlContent && typeof xmlContent === 'object') {
+      return buscarEnRespuesta(xmlContent, 'dCodRes')
+        ?? buscarEnRespuesta(xmlContent, 'codigoRetorno');
+    }
     // Soporta ambos formatos: SIFEN v150 (<ns2:dCodRes>) y genérico (<codigoRetorno>)
     const match =
       xmlContent.match(/<ns2:dCodRes>(.*?)<\/ns2:dCodRes>/) ||
@@ -39,6 +73,10 @@ function extraerCodigoRetorno(xmlContent) {
  */
 function extraerMensajeRetorno(xmlContent) {
   try {
+    if (xmlContent && typeof xmlContent === 'object') {
+      return buscarEnRespuesta(xmlContent, 'dMsgRes')
+        ?? buscarEnRespuesta(xmlContent, 'mensajeRetorno');
+    }
     // Soporta ambos formatos: SIFEN v150 (<ns2:dMsgRes>) y genérico (<mensajeRetorno>)
     const match =
       xmlContent.match(/<ns2:dMsgRes>(.*?)<\/ns2:dMsgRes>/) ||
@@ -64,6 +102,10 @@ function extraerMensajeRetorno(xmlContent) {
  */
 function extraerEstadoResultado(xmlContent) {
   try {
+    if (xmlContent && typeof xmlContent === 'object') {
+      return buscarEnRespuesta(xmlContent, 'dEstRes')
+        ?? buscarEnRespuesta(xmlContent, 'estadoResultado');
+    }
     // Soporta ambos formatos: SIFEN v150 (<ns2:dEstRes>) y genérico (<estadoResultado>)
     const match =
       xmlContent.match(/<ns2:dEstRes>(.*?)<\/ns2:dEstRes>/) ||
@@ -89,6 +131,13 @@ function extraerEstadoResultado(xmlContent) {
  */
 function extraerCDC(xmlContent) {
   try {
+    if (xmlContent && typeof xmlContent === 'object') {
+      // el CDC son exactamente 44 dígitos (el 'id' suelto de setapi es el dId de 15)
+      const esCdc = (v) => /^[0-9]{44}$/.test(v);
+      return buscarEnRespuesta(xmlContent, 'id', esCdc)
+        ?? buscarEnRespuesta(xmlContent, 'Id', esCdc)
+        ?? buscarEnRespuesta(xmlContent, 'cdc', esCdc);
+    }
     // Soporta ambos formatos: SIFEN v150 (<ns2:id>) y genérico (<cdc>)
     const match =
       xmlContent.match(/<ns2:id>(.*?)<\/ns2:id>/) ||
@@ -114,6 +163,10 @@ function extraerCDC(xmlContent) {
  */
 function extraerFechaProceso(xmlContent) {
   try {
+    if (xmlContent && typeof xmlContent === 'object') {
+      return buscarEnRespuesta(xmlContent, 'dFecProc')
+        ?? buscarEnRespuesta(xmlContent, 'fechaProceso');
+    }
     // Soporta ambos formatos: SIFEN v150 (<ns2:dFecProc>) y genérico (<fechaProceso>)
     const match =
       xmlContent.match(/<ns2:dFecProc>(.*?)<\/ns2:dFecProc>/) ||
@@ -139,6 +192,9 @@ function extraerFechaProceso(xmlContent) {
  */
 function extraerDigestValue(xmlContent) {
   try {
+    if (xmlContent && typeof xmlContent === 'object') {
+      return buscarEnRespuesta(xmlContent, 'DigestValue');
+    }
     // Soporta ambos formatos: SIFEN v150 (<ns2:dDigVal>) y genérico (<digestValue>)
     const match =
       xmlContent.match(/<ns2:dDigVal>(.*?)<\/ns2:dDigVal>/) ||
@@ -287,6 +343,11 @@ function getMensajePorCodigo(codigo) {
  */
 function extraerEstadoDocumento(xmlContent) {
   try {
+    if (xmlContent && typeof xmlContent === 'object') {
+      return buscarEnRespuesta(xmlContent, 'estado')
+        ?? buscarEnRespuesta(xmlContent, 'dEstDe')
+        ?? buscarEnRespuesta(xmlContent, 'dEstRes');
+    }
     // El estado del documento viene en <estado> (no confundir con <dEstRes>)
     const match =
       xmlContent.match(/<ns2:estado>(.*?)<\/ns2:estado>/) ||
@@ -304,6 +365,9 @@ function extraerEstadoDocumento(xmlContent) {
 }
 
 module.exports = {
+  // Búsqueda genérica sobre la respuesta parseada
+  buscarEnRespuesta,
+
   // Funciones de extracción de SOAP
   extraerCodigoRetorno,
   extraerMensajeRetorno,

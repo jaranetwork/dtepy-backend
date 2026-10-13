@@ -1,12 +1,13 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const JWT_SECRET = require('../config/jwtSecret');
 
 // Generar token JWT
 const generarToken = (userId) => {
   return jwt.sign(
     { userId },
-    process.env.JWT_SECRET || 'sifen-secret-key-change-in-production',
-    { expiresIn: '24h' }
+    JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
   );
 };
 

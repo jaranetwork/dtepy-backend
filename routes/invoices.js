@@ -1,4 +1,5 @@
 const express = require('express');
+const { generarIdSifen } = require('../utils/idSifen');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
@@ -6,85 +7,307 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Invoice = require('../models/Invoice');
 const OperationLog = require('../models/OperationLog');
-const { verificarToken } = require('../middleware/auth');
+const { verificarToken, verificarPermiso, requerirSesionAdmin } = require('../middleware/auth');
+const { cargarAlcance, filtroEmpresa, perteneceAlAlcance, empresaParaConsultas } = require('../middleware/alcance');
+const { resolverCertificadoEmpresa } = require('../services/certificadoService');
 const {
   extraerCodigoRetorno,
   extraerMensajeRetorno,
   extraerEstadoResultado,
   extraerEstadoDocumento
 } = require('../utils/estadoSifen');
+const acciones = require('../services/facturaAccionesService');
 
 // Todas las rutas requieren autenticación
-router.use(verificarToken);
+// Autenticación + permiso base: una API Key necesita al menos
+// 'facturas:leer' para tocar cualquier ruta de facturas (las sesiones
+// JWT pasan siempre). Las rutas de abajo suman permisos puntuales.
+router.use(verificarToken, verificarPermiso('facturas:leer'), cargarAlcance);
 
 // Obtener todas las facturas
+/**
+ * Arma el filtro de Mongo del listado a partir de la query. Lo comparten el
+ * listado paginado y la exportación CSV, así ambos ven exactamente lo mismo.
+ */
+function construirFiltroListado(req) {
+  const { estado, rucEmpresa, search, searchType, de, desde, hasta, tipoEmision, moneda, ids } = req.query;
+  const query = {};
+
+  if (estado) {
+    const estados = String(estado).split(',').map(e => e.trim()).filter(Boolean);
+    query.estadoSifen = estados.length > 1 ? { $in: estados } : estados[0];
+  }
+  if (rucEmpresa) query.rucEmpresa = rucEmpresa;
+  if (de) {
+    const tipos = String(de).split(',').map(e => e.trim()).filter(Boolean);
+    query.de = tipos.length > 1 ? { $in: tipos } : tipos[0];
+  }
+  if (tipoEmision) query.tipoEmision = Number(tipoEmision);
+  if (moneda) query['datosFactura.data.moneda'] = String(moneda).toUpperCase();
+
+  if (desde || hasta) {
+    query.fechaCreacion = {};
+    if (desde) query.fechaCreacion.$gte = new Date(`${desde}T00:00:00-03:00`);
+    if (hasta) query.fechaCreacion.$lte = new Date(`${hasta}T23:59:59.999-03:00`);
+  }
+
+  if (ids) {
+    const lista = String(ids).split(',').filter(id => mongoose.Types.ObjectId.isValid(id));
+    query._id = { $in: lista };
+  }
+
+  if (search) {
+    // Escapar metacaracteres: el texto del usuario se busca literal
+    // (sin esto, un patrón hostil permite ReDoS)
+    const searchRegex = new RegExp(String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    switch (searchType) {
+      case 'ruc': query['cliente.ruc'] = searchRegex; break;
+      case 'nombre': query['cliente.nombre'] = searchRegex; break;
+      case 'cdc': query.cdc = searchRegex; break;
+      case 'tipo': query.de = searchRegex; break;
+      case 'correlativo': query.correlativo = searchRegex; break;
+      case 'id':
+        query._id = mongoose.Types.ObjectId.isValid(search) ? search : null;
+        break;
+      default:
+        // Búsqueda libre: número, CDC, RUC o nombre del cliente
+        query.$or = [
+          { correlativo: searchRegex },
+          { cdc: searchRegex },
+          { 'cliente.ruc': searchRegex },
+          { 'cliente.nombre': searchRegex }
+        ];
+    }
+  }
+
+  // Restringir a las empresas del alcance (admin ve todo)
+  Object.assign(query, filtroEmpresa(req));
+  return query;
+}
+
+const ORDENES = {
+  fecha: 'fechaCreacion',
+  correlativo: 'correlativo',
+  total: 'total',
+  estado: 'estadoSifen',
+  cliente: 'cliente.nombre',
+  tipo: 'de'
+};
+
+function construirOrden(req) {
+  const campo = ORDENES[req.query.sort] || 'fechaCreacion';
+  const dir = String(req.query.dir || 'desc').toLowerCase() === 'asc' ? 1 : -1;
+  const orden = { [campo]: dir };
+  if (campo !== 'fechaCreacion') orden.fechaCreacion = -1;
+  orden.createdAt = -1;
+  return orden;
+}
+
+/** Fila del listado: lo que necesita la tabla, sin XML ni payload completo. */
+function transformarParaListado(invoice) {
+  const obj = invoice.toObject();
+  const data = obj.datosFactura?.data || {};
+  delete obj.xmlContent;
+  delete obj.datosFactura;
+  delete obj.respuestaSifen;
+  const empresaPopulada = obj.empresaId && typeof obj.empresaId === 'object' && obj.empresaId.ruc !== undefined;
+  return {
+    ...obj,
+    estado: invoice.estadoSifen,
+    estadoVisual: invoice.estadoVisual || 'rechazado',
+    codigoRetorno: invoice.codigoRetorno || null,
+    de: invoice.de || 'Factura electrónica',
+    moneda: data.moneda || 'PYG',
+    tipoCambio: data.cambio ?? null,
+    fechaEmision: data.fecha || null,
+    empresa: empresaPopulada
+      ? { _id: obj.empresaId._id, ruc: obj.empresaId.ruc, nombre: obj.empresaId.nombreFantasia || obj.empresaId.razonSocial }
+      : null,
+    empresaId: empresaPopulada ? obj.empresaId._id : obj.empresaId,
+    tieneXml: Boolean(invoice.xmlPath),
+    tienePdf: Boolean(invoice.kudePath),
+    elegibilidad: acciones.elegibilidad(invoice)
+  };
+}
+
+// Obtener todas las facturas (paginado, con filtros y orden)
 router.get('/', async (req, res) => {
   try {
-    const { page = 1, limit = 10, estado, rucEmpresa, search, searchType } = req.query;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 10));
+    const query = construirFiltroListado(req);
 
-    const query = {};
-    if (estado) {
-      query.estadoSifen = estado;
-    }
-    if (rucEmpresa) {
-      query.rucEmpresa = rucEmpresa;
-    }
-
-    if (search) {
-      const searchRegex = new RegExp(search, 'i');
-      switch (searchType) {
-        case 'ruc':
-          query['cliente.ruc'] = searchRegex;
-          break;
-        case 'nombre':
-          query['cliente.nombre'] = searchRegex;
-          break;
-        case 'cdc':
-          query.cdc = searchRegex;
-          break;
-        case 'tipo':
-          query.de = searchRegex;
-          break;
-        case 'id':
-          if (mongoose.Types.ObjectId.isValid(search)) {
-            query._id = search;
-          } else {
-            query._id = null;
-          }
-          break;
-      }
-    }
-
-    const invoices = await Invoice.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .exec();
-
-    const total = await Invoice.countDocuments(query);
-
-    const invoicesTransformadas = invoices.map(invoice => {
-      const invoiceObj = invoice.toObject();
-      return {
-        ...invoiceObj,
-        estado: invoice.estadoSifen,
-        estadoVisual: invoice.estadoVisual || 'rechazado',
-        codigoRetorno: invoice.codigoRetorno || null,
-        de: invoice.de || 'Factura electrónica'
-      };
-    });
+    const [invoices, total] = await Promise.all([
+      Invoice.find(query)
+        .sort(construirOrden(req))
+        .limit(limit)
+        .skip((page - 1) * limit)
+        .populate('empresaId', 'ruc nombreFantasia razonSocial')
+        .exec(),
+      Invoice.countDocuments(query)
+    ]);
 
     res.json({
       success: true,
       message: 'Facturas obtenidas exitosamente',
-      invoices: invoicesTransformadas,
+      invoices: invoices.map(transformarParaListado),
       totalPages: Math.ceil(total / limit),
-      currentPage: parseInt(page),
-      total
+      currentPage: page,
+      total,
+      limit
     });
   } catch (error) {
     console.error('Error listando facturas:', error);
     res.status(500).json({ success: false, error: 'INVOICES_LIST_ERROR', message: error.message });
+  }
+});
+
+// Exportar el listado (mismos filtros) a CSV para Excel
+router.get('/export.csv', async (req, res) => {
+  try {
+    const query = construirFiltroListado(req);
+    const invoices = await Invoice.find(query).sort(construirOrden(req)).limit(5000).select('-xmlContent').exec();
+    const csv = acciones.aCsv(invoices.map(acciones.filaCsv));
+    const fecha = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="documentos_${fecha}.csv"`);
+    res.send(csv);
+  } catch (error) {
+    console.error('Error exportando CSV:', error);
+    res.status(500).json({ success: false, error: 'INVOICES_EXPORT_ERROR', message: error.message });
+  }
+});
+
+// -------------------------------------------------------------------
+// Operaciones masivas (bulk). Reciben { ids: [...] } y devuelven un
+// resultado por documento; nunca cortan por un error individual.
+// -------------------------------------------------------------------
+
+const MAX_BULK = 200;
+
+/** Carga los documentos pedidos que estén dentro del alcance, en el orden pedido. */
+async function cargarSeleccion(req, extra = {}) {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+  const validos = [...new Set(ids)].filter(id => mongoose.Types.ObjectId.isValid(id));
+  if (validos.length === 0) {
+    const error = new Error('Indicá al menos un documento (ids)');
+    error.statusCode = 400; error.errorCode = 'BULK_SIN_IDS';
+    throw error;
+  }
+  if (validos.length > MAX_BULK) {
+    const error = new Error(`Máximo ${MAX_BULK} documentos por operación (pediste ${validos.length})`);
+    error.statusCode = 400; error.errorCode = 'BULK_DEMASIADOS';
+    throw error;
+  }
+  const docs = await Invoice.find({ _id: { $in: validos }, ...filtroEmpresa(req) }, extra.select || undefined);
+  const porId = new Map(docs.map(d => [String(d._id), d]));
+  return validos.map(id => ({ id, invoice: porId.get(id) || null }));
+}
+
+function responderBulk(res, resultados, mensaje) {
+  const ok = resultados.filter(r => r.ok).length;
+  res.json({ success: true, message: mensaje, total: resultados.length, ok, fallidos: resultados.length - ok, resultados });
+}
+
+function errorBulk(res, error) {
+  res.status(error.statusCode || 500).json({ success: false, error: error.errorCode || 'BULK_ERROR', message: error.message });
+}
+
+// ZIP con XML y/o PDF de la selección
+router.post('/bulk/zip', async (req, res) => {
+  try {
+    const incluir = Array.isArray(req.body?.incluir) && req.body.incluir.length ? req.body.incluir : ['xml', 'pdf'];
+    const seleccion = await cargarSeleccion(req, { select: 'correlativo de xmlPath kudePath estadoSifen cdc' });
+
+    const JSZip = require('jszip');
+    const zip = new JSZip();
+    const faltantes = [];
+    let agregados = 0;
+
+    for (const { id, invoice } of seleccion) {
+      if (!invoice) { faltantes.push(`${id}: no encontrado`); continue; }
+      if (incluir.includes('xml')) {
+        const ruta = acciones.rutaXml(invoice);
+        if (ruta) { zip.file(acciones.nombreArchivo(invoice, 'xml'), fs.readFileSync(ruta)); agregados++; }
+        else faltantes.push(`${invoice.correlativo}: sin XML`);
+      }
+      if (incluir.includes('pdf')) {
+        const ruta = acciones.rutaPdf(invoice);
+        if (ruta) { zip.file(acciones.nombreArchivo(invoice, 'pdf'), fs.readFileSync(ruta)); agregados++; }
+        else faltantes.push(`${invoice.correlativo}: sin PDF`);
+      }
+    }
+
+    if (agregados === 0) {
+      return res.status(404).json({ success: false, error: 'BULK_ZIP_VACIO', message: 'Ninguno de los documentos seleccionados tiene archivos disponibles', faltantes });
+    }
+    if (faltantes.length) {
+      zip.file('FALTANTES.txt', `Documentos sin archivo:\r\n${faltantes.join('\r\n')}\r\n`);
+    }
+
+    const fecha = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="documentos_${fecha}_${seleccion.length}.zip"`);
+    res.setHeader('X-Archivos-Agregados', String(agregados));
+    res.setHeader('X-Archivos-Faltantes', String(faltantes.length));
+    zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'DEFLATE' })
+      .on('error', (error) => { console.error('Error generando ZIP:', error); if (!res.headersSent) res.status(500).end(); })
+      .pipe(res);
+  } catch (error) {
+    errorBulk(res, error);
+  }
+});
+
+// Consultar estado en SET de la selección (secuencial: SET limita el ritmo)
+router.post('/bulk/refresh-status', verificarPermiso('facturas:crear'), async (req, res) => {
+  try {
+    const seleccion = await cargarSeleccion(req);
+    const resultados = [];
+    for (const { id, invoice } of seleccion) {
+      if (!invoice) { resultados.push({ id, ok: false, mensaje: 'No encontrado' }); continue; }
+      const r = await acciones.consultarEstadoEnSet(invoice);
+      resultados.push({
+        id, correlativo: invoice.correlativo, ok: r.status === 200,
+        estadoAnterior: r.body.estadoAnterior, estadoActual: r.body.estadoActual || invoice.estadoSifen,
+        cambio: Boolean(r.body.estadoCambio), consultoSET: Boolean(r.body.consultoSET),
+        mensaje: r.body.message || r.body.error
+      });
+    }
+    responderBulk(res, resultados, 'Consulta de estado terminada');
+  } catch (error) {
+    errorBulk(res, error);
+  }
+});
+
+// Reintentar emisión de la selección
+router.post('/bulk/retry', verificarPermiso('facturas:crear'), async (req, res) => {
+  try {
+    const seleccion = await cargarSeleccion(req);
+    const resultados = [];
+    for (const { id, invoice } of seleccion) {
+      if (!invoice) { resultados.push({ id, ok: false, mensaje: 'No encontrado' }); continue; }
+      const r = await acciones.reintentarEnvio(invoice);
+      resultados.push({ id, correlativo: invoice.correlativo, ok: r.status === 200, mensaje: r.body.message, nuevoCorrelativo: r.body.data?.correlativo });
+    }
+    responderBulk(res, resultados, 'Reintentos encolados');
+  } catch (error) {
+    errorBulk(res, error);
+  }
+});
+
+// Eliminar de la selección lo que nunca existió en SET
+router.post('/bulk/delete', verificarPermiso('facturas:eliminar'), async (req, res) => {
+  try {
+    const seleccion = await cargarSeleccion(req);
+    const resultados = [];
+    for (const { id, invoice } of seleccion) {
+      if (!invoice) { resultados.push({ id, ok: false, mensaje: 'No encontrado' }); continue; }
+      const r = await acciones.eliminarFactura(invoice);
+      resultados.push({ id, correlativo: invoice.correlativo, ok: r.status === 200, mensaje: r.body.message });
+    }
+    responderBulk(res, resultados, 'Eliminación terminada');
+  } catch (error) {
+    errorBulk(res, error);
   }
 });
 
@@ -102,7 +325,7 @@ router.get('/cdc/:cdc', async (req, res) => {
       return;
     }
 
-    const invoiceRecord = await Invoice.findOne({ cdc });
+    const invoiceRecord = await Invoice.findOne({ cdc, ...filtroEmpresa(req) });
 
     if (invoiceRecord) {
       res.status(200).json({
@@ -130,12 +353,21 @@ router.get('/cdc/:cdc', async (req, res) => {
 
     try {
       const setApi = require('../services/setapi-wrapper');
-      const idConsulta = crypto.randomBytes(16).toString('hex');
-      const ambiente = "test";
-      const certificateP12Path = path.join(__dirname, '..', 'certificados', 'p12', 'certificado.p12');
-      const certificatePassword = '123456';
+      const idConsulta = generarIdSifen();
 
-      const respuesta = await setApi.consulta(idConsulta, cdc, ambiente, certificateP12Path, certificatePassword);
+      // Consultar a SET requiere firmar con un certificado real
+      const empresa = await empresaParaConsultas(req);
+      if (!empresa) {
+        return res.status(400).json({
+          success: false,
+          error: 'CERTIFICADO_NO_DISPONIBLE',
+          message: 'Para consultar a SIFEN se necesita una empresa con certificado digital activo'
+        });
+      }
+      const ambiente = empresa.configuracionSifen?.modo || 'test';
+      const cert = resolverCertificadoEmpresa(empresa);
+
+      const respuesta = await setApi.consulta(idConsulta, cdc, ambiente, cert.ruta, cert.contrasena);
 
       res.status(200).json({
         success: true,
@@ -169,7 +401,7 @@ router.get('/estado/:cdc', async (req, res) => {
       return;
     }
 
-    const invoiceRecord = await Invoice.findOne({ cdc });
+    const invoiceRecord = await Invoice.findOne({ cdc, ...filtroEmpresa(req) });
 
     if (!invoiceRecord) {
       res.status(404).json({
@@ -193,33 +425,21 @@ router.get('/estado/:cdc', async (req, res) => {
         console.log('⚠️ No se encontró la empresa, usando configuración por defecto');
       }
 
-      const idConsulta = crypto.randomBytes(16).toString('hex');
+      const idConsulta = generarIdSifen();
       const ambiente = empresa?.configuracionSifen?.modo || 'test';
 
-      let certificateP12Path = path.join(__dirname, '..', 'certificados', 'p12', 'certificado.p12');
-      let certificatePassword = '123456';
-
-      if (empresa?.certificado?.nombreArchivo) {
-        const certificadoService = require('../services/certificadoService');
-        certificateP12Path = path.join(__dirname, '..', 'certificados', 'p12', empresa.certificado.nombreArchivo);
-        certificatePassword = certificadoService.descifrarContrasena(empresa.certificado.contrasena);
-        console.log(`🔑 Usando certificado de la empresa: ${empresa.certificado.nombreArchivo}`);
-      } else {
-        console.log('⚠️ Empresa no tiene certificado configurado, usando certificado por defecto');
+      if (!empresa) {
+        return res.status(400).json({
+          success: false,
+          error: 'EMPRESA_NOT_FOUND',
+          message: 'La factura no tiene una empresa asociada con la cual consultar a SET'
+        });
       }
+      const cert = resolverCertificadoEmpresa(empresa);
 
-      const respuesta = await setApi.consulta(idConsulta, cdc, ambiente, certificateP12Path, certificatePassword);
+      const respuesta = await setApi.consulta(idConsulta, cdc, ambiente, cert.ruta, cert.contrasena);
 
-      const codigoRetornoMatch =
-        respuesta.match(/<ns2:dCodRes>(.*?)<\/ns2:dCodRes>/) ||
-        respuesta.match(/<dCodRes>(.*?)<\/dCodRes>/) ||
-        respuesta.match(/<codigoRetorno>(.*?)<\/codigoRetorno>/);
-
-      let codigoRetorno = null;
-
-      if (codigoRetornoMatch && codigoRetornoMatch[1]) {
-        codigoRetorno = codigoRetornoMatch[1].trim();
-      }
+      const codigoRetorno = extraerCodigoRetorno(respuesta);
 
       estadoSET = extraerEstadoDocumento(respuesta);
 
@@ -325,7 +545,7 @@ router.get('/logs', async (req, res) => {
 });
 
 // Limpiar todas las facturas (requiere contraseña)
-router.delete('/clear', async (req, res) => {
+router.delete('/clear', requerirSesionAdmin, async (req, res) => {
   try {
     const { password } = req.body;
     if (!password) {
@@ -343,17 +563,26 @@ router.delete('/clear', async (req, res) => {
       return res.status(401).json({ success: false, error: 'PASSWORD_INCORRECT', message: 'Contraseña incorrecta' });
     }
 
-    const result = await Invoice.deleteMany({});
+    // Un documento que existe en SET (aprobado, observado o cancelado, con
+    // CDC) es un comprobante fiscal: se conserva 5 años y NUNCA se borra
+    // desde acá, ni sus registros de operación. Solo se limpia lo que nunca
+    // llegó a SET (pruebas, rechazados, errores, encolados).
+    const protegidos = await Invoice.find(acciones.FILTRO_EXISTE_EN_SET).select('_id correlativo').lean();
+    const idsProtegidos = protegidos.map((p) => p._id);
 
-    const logsResult = await OperationLog.deleteMany({});
+    const result = await Invoice.deleteMany({ _id: { $nin: idsProtegidos } });
+    const logsResult = await OperationLog.deleteMany({ invoiceId: { $nin: idsProtegidos } });
 
-    console.log(`🗑️ Base de datos limpiada: ${result.deletedCount} facturas, ${logsResult.deletedCount} registros eliminados`);
+    console.log(`🗑️ Base de datos limpiada: ${result.deletedCount} facturas, ${logsResult.deletedCount} registros eliminados; ${idsProtegidos.length} documento(s) fiscales conservados`);
 
     res.status(200).json({
       success: true,
-      message: 'Base de datos limpiada exitosamente',
+      message: idsProtegidos.length
+        ? `Base de datos limpiada. Se conservaron ${idsProtegidos.length} documento(s) que existen en SET: ${protegidos.map((p) => p.correlativo).join(', ')}`
+        : 'Base de datos limpiada exitosamente',
       deletedCount: result.deletedCount,
-      deletedLogs: logsResult.deletedCount
+      deletedLogs: logsResult.deletedCount,
+      conservados: protegidos.map((p) => ({ id: p._id, correlativo: p.correlativo }))
     });
   } catch (error) {
     console.error('Error al limpiar base de datos:', error);
@@ -372,17 +601,20 @@ router.delete('/clear', async (req, res) => {
 // Obtener una factura específica
 router.get('/:id', async (req, res) => {
   try {
-    const invoice = await Invoice.findById(req.params.id);
+    const invoice = await Invoice.findById(req.params.id).populate('empresaId', 'ruc nombreFantasia razonSocial');
 
-    if (!invoice) {
+    if (!invoice || !perteneceAlAlcance(req, invoice.empresaId?._id || invoice.empresaId)) {
       return res.status(404).json({ success: false, error: 'FACTURA_NOT_FOUND', message: 'Factura no encontrada' });
     }
+    const empresa = invoice.empresaId && invoice.empresaId.ruc
+      ? { _id: invoice.empresaId._id, ruc: invoice.empresaId.ruc, nombre: invoice.empresaId.nombreFantasia || invoice.empresaId.razonSocial }
+      : null;
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const xmlLink = invoice.xmlPath ? `${baseUrl}/api/invoices/${invoice._id}/download-xml` : null;
     const kudeLink = invoice.kudePath ? `${baseUrl}/api/invoices/${invoice._id}/download-pdf` : null;
 
-    const estadosFinales = ['aceptado', 'rechazado', 'error', 'observado'];
+    const estadosFinales = ['aceptado', 'rechazado', 'error', 'observado', 'cancelado'];
     const esEstadoFinal = estadosFinales.includes(invoice.estadoSifen);
 
     const recomendarRefresh = !esEstadoFinal && invoice.cdc;
@@ -415,7 +647,12 @@ router.get('/:id', async (req, res) => {
         xmlContent: invoice.xmlContent || null,
         de: invoice.de || 'Factura electrónica',
         tipoEmision: invoice.tipoEmision || 1,
-        grupoLoteId: invoice.grupoLoteId || null
+        grupoLoteId: invoice.grupoLoteId || null,
+        rucEmpresa: invoice.rucEmpresa || empresa?.ruc || null,
+        empresa,
+        protocolo: invoice.respuestaSifen?.protocolo || null,
+        updatedAt: invoice.updatedAt,
+        elegibilidad: acciones.elegibilidad(invoice)
       }
     });
   } catch (error) {
@@ -431,6 +668,11 @@ router.get('/:id', async (req, res) => {
 // Obtener logs de una factura
 router.get('/:id/logs', async (req, res) => {
   try {
+    const invoice = await Invoice.findById(req.params.id).select('empresaId');
+    if (!invoice || !perteneceAlAlcance(req, invoice.empresaId)) {
+      return res.status(404).json({ success: false, error: 'FACTURA_NOT_FOUND', message: 'Factura no encontrada' });
+    }
+
     const logs = await OperationLog.find({ invoiceId: req.params.id })
       .sort({ createdAt: -1 });
 
@@ -444,6 +686,11 @@ router.get('/:id/logs', async (req, res) => {
 // Obtener eventos de una factura
 router.get('/:id/eventos', async (req, res) => {
   try {
+    const invoice = await Invoice.findById(req.params.id).select('empresaId');
+    if (!invoice || !perteneceAlAlcance(req, invoice.empresaId)) {
+      return res.status(404).json({ success: false, error: 'FACTURA_NOT_FOUND', message: 'Factura no encontrada' });
+    }
+
     const Evento = require('../models/Evento');
     const eventos = await Evento.find({ invoiceId: req.params.id })
       .sort({ createdAt: -1 });
@@ -465,168 +712,14 @@ router.get('/:id/eventos', async (req, res) => {
 });
 
 // Reintentar envío de factura
-router.post('/:id/retry', async (req, res) => {
+router.post('/:id/retry', verificarPermiso('facturas:crear'), async (req, res) => {
   try {
     const invoice = await Invoice.findById(req.params.id);
-
-    if (!invoice) {
+    if (!invoice || !perteneceAlAlcance(req, invoice.empresaId)) {
       return res.status(404).json({ success: false, error: 'FACTURA_NOT_FOUND', message: 'Factura no encontrada' });
     }
-
-    const retryLog = new OperationLog({
-      invoiceId: invoice._id,
-      tipoOperacion: 'reintento',
-      descripcion: `Reintento de envío a SIFEN - CDC: ${invoice.cdc}`,
-      estado: 'warning',
-      fecha: new Date(),
-      detalle: {
-        cdc: invoice.cdc,
-        correlativo: invoice.correlativo,
-        estadoAnterior: invoice.estadoSifen,
-        xmlPath: invoice.xmlPath,
-        motivo: 'Reintento manual desde frontend'
-      }
-    });
-
-    await retryLog.save();
-
-    if (!invoice.xmlPath || !fs.existsSync(path.join(__dirname, '../de_output', invoice.xmlPath))) {
-      return res.status(400).json({
-        success: false,
-        error: 'RETRY_XML_NOT_FOUND',
-        message: 'No se puede reenviar: XML no encontrado',
-        detalle: 'El archivo XML de esta factura no existe en el servidor'
-      });
-    }
-
-    const estadosFinales = ['aceptado', 'observado'];
-    if (estadosFinales.includes(invoice.estadoSifen) && invoice.cdc) {
-      return res.status(400).json({
-        success: false,
-        error: 'RETRY_ESTADO_FINAL',
-        message: 'No es necesario reenviar a SET',
-        detalle: `La factura ya tiene estado "${invoice.estadoSifen}" en la base de datos. Si necesitas actualizar el estado, usa "Consultar Estado" en lugar de "Reintentar".`,
-        estadoActual: invoice.estadoSifen,
-        cdc: invoice.cdc
-      });
-    }
-
-    const xmlPath = path.join(__dirname, '../de_output', invoice.xmlPath);
-    const xmlOriginal = fs.readFileSync(xmlPath, 'utf8');
-
-    const cdc = invoice.cdc;
-
-    if (!cdc) {
-      return res.status(400).json({
-        success: false,
-        error: 'RETRY_CDC_NOT_FOUND',
-        message: 'No se puede reenviar: CDC no encontrado',
-        detalle: 'La factura no tiene un CDC asociado'
-      });
-    }
-
-    invoice.estadoSifen = 'procesando';
-    await invoice.save();
-
-    try {
-      const setApi = require('../services/setapi-wrapper');
-      const idDocumento = 'retry-' + Date.now();
-      const ambiente = process.env.AMBIENTE_SET || 'test';
-
-      console.log(`🔄 Reenviando factura CDC ${cdc} a la SET...`);
-
-      const soapResponse = await setApi.recibe(idDocumento, xmlOriginal, ambiente);
-
-      console.log('📄 Respuesta SOAP recibida en reenvío:');
-      console.log(soapResponse.substring(0, 500) + '...');
-
-      const codigoRetorno = extraerCodigoRetorno(soapResponse);
-      const mensajeRetorno = extraerMensajeRetorno(soapResponse);
-      const estadoResultado = extraerEstadoResultado(soapResponse);
-
-      let nuevoEstado = 'enviado';
-      let estadoVisual = 'observado';
-
-      if (codigoRetorno === '0260') {
-        nuevoEstado = 'aceptado';
-        estadoVisual = 'aceptado';
-      } else if (codigoRetorno === '1005') {
-        nuevoEstado = 'observado';
-        estadoVisual = 'observado';
-      } else if (['1000', '1001', '1002', '1003', '1004', '0420'].includes(codigoRetorno)) {
-        nuevoEstado = 'rechazado';
-        estadoVisual = 'rechazado';
-      } else if (['0', '2'].includes(codigoRetorno)) {
-        nuevoEstado = 'aceptado';
-        estadoVisual = 'aceptado';
-      }
-
-      invoice.estadoSifen = nuevoEstado;
-      invoice.estadoVisual = estadoVisual;
-      invoice.codigoRetorno = codigoRetorno;
-      invoice.mensajeRetorno = mensajeRetorno;
-      await invoice.save();
-
-      const resultLog = new OperationLog({
-        invoiceId: invoice._id,
-        tipoOperacion: 'reintento_respuesta',
-        descripcion: `Reenvío completado - Estado: ${nuevoEstado}, Visual: ${estadoVisual}, Código: ${codigoRetorno}`,
-        estadoAnterior: 'procesando',
-        estadoNuevo: nuevoEstado,
-        fecha: new Date(),
-        detalle: {
-          cdc: cdc,
-          codigoRetorno: codigoRetorno,
-          mensajeRetorno: mensajeRetorno,
-          estadoResultado: estadoResultado,
-          estadoVisual: estadoVisual,
-          idDocumento: idDocumento
-        }
-      });
-      await resultLog.save();
-
-      console.log(`✅ Reenvío completado - CDC: ${cdc}, Estado: ${nuevoEstado}`);
-
-      res.json({
-        success: true,
-        message: 'Reenvío completado',
-        data: {
-          invoice,
-          estado: nuevoEstado,
-          codigoRetorno,
-          mensajeRetorno
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Error al reenviar:', error.message);
-
-      invoice.estadoSifen = 'error';
-      invoice.estadoVisual = 'error';
-      invoice.mensajeRetorno = `Error al reenviar: ${error.message}`;
-      await invoice.save();
-
-      const errorLog = new OperationLog({
-        invoiceId: invoice._id,
-        tipoOperacion: 'error',
-        descripcion: `Error en reintento de envío: ${error.message}`,
-        estado: 'error',
-        detalle: {
-          error: error.message,
-          stack: error.stack
-        },
-        fecha: new Date()
-      });
-      await errorLog.save();
-
-      res.status(500).json({
-        success: false,
-        error: 'RETRY_ERROR',
-        message: 'Error al reenviar factura',
-        detalle: error.message
-      });
-    }
-
+    const r = await acciones.reintentarEnvio(invoice);
+    res.status(r.status).json(r.body);
   } catch (error) {
     console.error('Error en retry:', error);
     res.status(500).json({ success: false, error: 'RETRY_ERROR', message: error.message });
@@ -634,328 +727,17 @@ router.post('/:id/retry', async (req, res) => {
 });
 
 // Refrescar estado desde SET
-router.post('/:id/refresh-status', async (req, res) => {
+router.post('/:id/refresh-status', verificarPermiso('facturas:crear'), async (req, res) => {
   try {
-    const { id } = req.params;
-
-    console.log(`🔄 Consultando estado para factura ID: ${id}`);
-
-    const invoiceRecord = await Invoice.findById(id);
-
-    if (!invoiceRecord) {
-      console.log(`❌ Factura no encontrada: ${id}`);
-      return res.status(404).json({
-        success: false,
-        error: 'Factura no encontrada'
-      });
+    const invoiceRecord = await Invoice.findById(req.params.id);
+    if (!invoiceRecord || !perteneceAlAlcance(req, invoiceRecord.empresaId)) {
+      return res.status(404).json({ success: false, error: 'FACTURA_NOT_FOUND', message: 'Factura no encontrada' });
     }
-
-    if (!invoiceRecord.cdc) {
-      console.log(`❌ Factura sin CDC: ${id}`);
-      return res.status(400).json({
-        success: false,
-        error: 'CDC_REQUIRED',
-        message: 'La factura no tiene CDC asignado'
-      });
-    }
-
-    console.log(`📋 CDC encontrado: ${invoiceRecord.cdc}, Estado actual: ${invoiceRecord.estadoSifen}`);
-
-    const estadosFinales = ['aceptado', 'rechazado', 'error', 'observado'];
-    const esEstadoFinal = estadosFinales.includes(invoiceRecord.estadoSifen);
-
-    if (esEstadoFinal) {
-      console.log(`✅ Estado final '${invoiceRecord.estadoSifen}' - No es necesario consultar a SET`);
-      console.log(`   Los estados finales no cambian según Manual Técnico v150`);
-
-      return res.json({
-        success: true,
-        message: 'Estado final - No se consultó a SET (no hay cambios posibles)',
-        esEstadoFinal: true,
-        consultoSET: false,
-        estadoAnterior: invoiceRecord.estadoSifen,
-        estadoActual: invoiceRecord.estadoSifen,
-        estadoVisual: invoiceRecord.estadoVisual,
-        estadoCambio: false,
-        data: {
-          estado: invoiceRecord.estadoSifen,
-          estadoVisual: invoiceRecord.estadoVisual,
-          facturaId: invoiceRecord._id,
-          correlativo: invoiceRecord.correlativo,
-          cdc: invoiceRecord.cdc,
-          codigoRetorno: invoiceRecord.codigoRetorno,
-          mensajeRetorno: invoiceRecord.mensajeRetorno,
-          fechaProceso: invoiceRecord.fechaProceso
-        }
-      });
-    }
-
-    try {
-      const Empresa = require('../models/Empresa');
-      const setApi = require('../services/setapi-wrapper');
-      const empresa = await Empresa.findById(invoiceRecord.empresaId);
-
-      if (!empresa) {
-        console.log('⚠️ No se encontró la empresa, usando configuración por defecto');
-      }
-
-      const idConsulta = crypto.randomBytes(16).toString('hex');
-      const ambiente = empresa?.configuracionSifen?.modo || 'test';
-
-      let certificateP12Path = path.join(__dirname, '..', 'certificados', 'p12', 'certificado.p12');
-      let certificatePassword = '123456';
-
-      if (empresa?.certificado?.nombreArchivo) {
-        const certificadoService = require('../services/certificadoService');
-        certificateP12Path = path.join(__dirname, '..', 'certificados', 'p12', empresa.certificado.nombreArchivo);
-        certificatePassword = certificadoService.descifrarContrasena(empresa.certificado.contrasena);
-        console.log(`🔑 Usando certificado de la empresa: ${empresa.certificado.nombreArchivo}`);
-      } else {
-        console.log('⚠️ Empresa no tiene certificado configurado, usando certificado por defecto');
-      }
-
-      console.log('📤 Enviando consulta a la SET...');
-
-      const respuesta = await setApi.consulta(idConsulta, invoiceRecord.cdc, ambiente, certificateP12Path, certificatePassword);
-
-      console.log('📥 Respuesta recibida de la SET');
-      console.log('Respuesta:', respuesta.substring(0, 500));
-
-      const codigoRetornoMatch =
-        respuesta.match(/<ns2:dCodRes>(.*?)<\/ns2:dCodRes>/) ||
-        respuesta.match(/<dCodRes>(.*?)<\/dCodRes>/) ||
-        respuesta.match(/<codigoRetorno>(.*?)<\/codigoRetorno>/);
-
-      const estadoRetornoMatch =
-        respuesta.match(/<ns2:estado>(.*?)<\/ns2:estado>/) ||
-        respuesta.match(/<estado>(.*?)<\/estado>/) ||
-        respuesta.match(/<ns2:dEstRes>(.*?)<\/ns2:dEstRes>/) ||
-        respuesta.match(/<dEstRes>(.*?)<\/dEstRes>/) ||
-        respuesta.match(/<estadoResultado>(.*?)<\/estadoResultado>/);
-
-      const mensajeRetornoMatch =
-        respuesta.match(/<ns2:dMsgRes>(.*?)<\/ns2:dMsgRes>/) ||
-        respuesta.match(/<dMsgRes>(.*?)<\/dMsgRes>/) ||
-        respuesta.match(/<mensajeRetorno>(.*?)<\/mensajeRetorno>/);
-
-      const fechaProcesoMatch =
-        respuesta.match(/<ns2:dFecProc>(.*?)<\/ns2:dFecProc>/) ||
-        respuesta.match(/<dFecProc>(.*?)<\/dFecProc>/) ||
-        respuesta.match(/<fechaProceso>(.*?)<\/fechaProceso>/);
-
-      const digestValueMatch =
-        respuesta.match(/<ns2:dDigVal>(.*?)<\/ns2:dDigVal>/) ||
-        respuesta.match(/<dDigVal>(.*?)<\/dDigVal>/) ||
-        respuesta.match(/<digestValue>(.*?)<\/digestValue>/);
-
-      console.log('🔍 Extrayendo datos de la respuesta...');
-      console.log('  codigoRetornoMatch:', codigoRetornoMatch);
-      console.log('  estadoRetornoMatch:', estadoRetornoMatch);
-      console.log('  mensajeRetornoMatch:', mensajeRetornoMatch);
-      console.log('  Respuesta SOAP (primeros 800 chars):', respuesta.substring(0, 800));
-
-      let codigoRetorno = invoiceRecord.codigoRetorno;
-      let estadoRetorno = invoiceRecord.respuestaSifen?.estado;
-      let mensajeRetorno = invoiceRecord.mensajeRetorno;
-      let fechaProceso = invoiceRecord.fechaProceso;
-      let digestValueResp = invoiceRecord.digestValue;
-
-      if (codigoRetornoMatch && codigoRetornoMatch[1]) {
-        codigoRetorno = codigoRetornoMatch[1].trim();
-        console.log('  Código de retorno extraído:', codigoRetorno);
-      }
-
-      if (estadoRetornoMatch && estadoRetornoMatch[1]) {
-        estadoRetorno = estadoRetornoMatch[1].trim();
-        console.log('  Estado de retorno extraído:', estadoRetorno);
-      }
-
-      if (mensajeRetornoMatch && mensajeRetornoMatch[1]) {
-        mensajeRetorno = mensajeRetornoMatch[1].trim();
-        console.log('  Mensaje extraído:', mensajeRetorno);
-      }
-
-      if (fechaProcesoMatch && fechaProcesoMatch[1]) {
-        fechaProceso = fechaProcesoMatch[1].trim();
-        console.log('  Fecha de proceso extraída:', fechaProceso);
-      }
-
-      if (digestValueMatch && digestValueMatch[1]) {
-        digestValueResp = digestValueMatch[1].trim();
-        console.log('  DigestValue extraído:', digestValueResp);
-      }
-
-      let estadoVisual = 'rechazado';
-      let estadoSifen = 'rechazado';
-
-      if (codigoRetorno === '0260') {
-        estadoVisual = 'aceptado';
-        estadoSifen = 'aceptado';
-        console.log('  ✅ Código 0260: Autorización satisfactoria');
-      } else if (codigoRetorno === '1005') {
-        estadoVisual = 'observado';
-        estadoSifen = 'observado';
-        console.log('  ⚠️ Código 1005: Transmisión extemporánea');
-      } else if (['1000', '1001', '1002', '1003', '1004'].includes(codigoRetorno)) {
-        estadoVisual = 'rechazado';
-        estadoSifen = 'rechazado';
-        console.log('  ❌ Código', codigoRetorno, ': Error de validación - Rechazado');
-      } else if (codigoRetorno === '0420') {
-        estadoVisual = 'error';
-        estadoSifen = 'error';
-        console.log('  ❌ Código 0420: CDC inexistente - Factura no encontrada en SET');
-      } else if (codigoRetorno === '0421') {
-        estadoVisual = 'rechazado';
-        estadoSifen = 'rechazado';
-        console.log('  ❌ Código 0421: RUC Certificado sin permiso para consultar');
-      } else if (codigoRetorno === '0422') {
-        estadoVisual = 'aceptado';
-        estadoSifen = 'aceptado';
-        console.log('  ✅ Código 0422: CDC encontrado - Documento APROBADO');
-      }
-
-      console.log('  Estado visual:', estadoVisual, '(desde código:', codigoRetorno + ')');
-      console.log('  Estado SIFEN:', estadoSifen);
-
-      const estadoCambio = estadoSifen !== invoiceRecord.estadoSifen;
-
-      if (estadoCambio || !invoiceRecord.respuestaSifen?.codigo) {
-        invoiceRecord.estadoSifen = estadoSifen;
-        invoiceRecord.estadoVisual = estadoVisual;
-        invoiceRecord.codigoRetorno = codigoRetorno;
-        invoiceRecord.mensajeRetorno = mensajeRetorno;
-        invoiceRecord.fechaProceso = fechaProceso;
-
-        invoiceRecord.respuestaSifen = {
-          codigo: codigoRetorno,
-          estado: estadoRetorno,
-          mensaje: mensajeRetorno,
-          fechaProceso: fechaProceso,
-          digestValue: digestValueResp
-        };
-
-        let tipoOperacion = 'actualizacion_estado';
-        let logEstado = 'success';
-        let descripcion = `Estado actualizado a ${estadoSifen}`;
-
-        if (estadoVisual === 'rechazado') {
-          tipoOperacion = 'error_respuesta_set';
-          logEstado = 'error';
-          descripcion = `Factura rechazada por SET: ${mensajeRetorno || codigoRetorno}`;
-
-          if (codigoRetorno === '0420') {
-            descripcion = `CDC inexistente en SET - La factura no fue encontrada en la base de datos de la SET`;
-          }
-        } else if (estadoVisual === 'observado') {
-          tipoOperacion = 'actualizacion_estado';
-          logEstado = 'warning';
-          descripcion = `Factura aceptada con observación: ${mensajeRetorno || 'Transmisión extemporánea'}`;
-        } else if (estadoVisual === 'aceptado') {
-          descripcion = `Factura aceptada por SET: ${mensajeRetorno || 'Autorización satisfactoria'}`;
-        }
-
-        const log = new OperationLog({
-          invoiceId: id,
-          tipoOperacion: tipoOperacion,
-          descripcion: descripcion,
-          estadoAnterior: invoiceRecord.estadoSifen,
-          estadoNuevo: estadoSifen,
-          estado: logEstado,
-          fecha: new Date(),
-          detalle: {
-            cdc: invoiceRecord.cdc,
-            correlativo: invoiceRecord.correlativo,
-            codigoRetorno: codigoRetorno,
-            estadoRetorno: estadoRetorno,
-            mensajeRetorno: mensajeRetorno,
-            estadoVisual: estadoVisual,
-            huboCambio: estadoCambio
-          }
-        });
-        await log.save();
-
-        await invoiceRecord.save();
-
-        if (logEstado === 'error') {
-          console.log(`❌ Factura rechazada para factura ${id}: ${descripcion}`);
-        } else if (logEstado === 'warning') {
-          console.log(`⚠️ Factura observada para factura ${id}: ${descripcion}`);
-        } else {
-          console.log(`✅ Estado actualizado para factura ${id}: ${invoiceRecord.estadoSifen} → ${estadoSifen}`);
-        }
-      } else {
-        console.log(`ℹ️ Estado sin cambios: ${estadoSifen}`);
-
-        const log = new OperationLog({
-          invoiceId: id,
-          tipoOperacion: 'consulta_estado',
-          descripcion: `Consulta de estado realizada - Estado actual: ${estadoSifen}`,
-          estado: 'success',
-          fecha: new Date(),
-          detalle: {
-            cdc: invoiceRecord.cdc,
-            correlativo: invoiceRecord.correlativo,
-            codigoRetorno: codigoRetorno,
-            estadoRetorno: estadoRetorno,
-            mensajeRetorno: mensajeRetorno,
-            estadoVisual: estadoVisual,
-            huboCambio: false
-          }
-        });
-        await log.save();
-      }
-
-      res.status(200).json({
-        success: true,
-        message: estadoCambio ? 'Estado actualizado' : 'Estado sin cambios',
-        estadoAnterior: invoiceRecord.estadoSifen,
-        estadoActual: estadoSifen,
-        estadoVisual: estadoVisual,
-        proceso: invoiceRecord.proceso,
-        estadoCambio: estadoCambio,
-        codigoRetorno: codigoRetorno,
-        mensajeRetorno: mensajeRetorno,
-        respuestaSifen: invoiceRecord.respuestaSifen,
-        esEstadoFinal: estadosFinales.includes(estadoSifen),
-        consultoSET: true
-      });
-
-    } catch (error) {
-      console.error('❌ Error consultando a la SET:', error);
-      console.error('Stack trace:', error.stack);
-
-      const log = new OperationLog({
-        invoiceId: id,
-        tipoOperacion: 'error_consulta_estado',
-        descripcion: `Error al consultar estado en SET: ${error.message}`,
-        estado: 'error',
-        fecha: new Date(),
-        detalle: {
-          error: error.message,
-          stack: error.stack
-        }
-      });
-      await log.save();
-
-      if (invoiceRecord.estadoSifen !== 'error') {
-        invoiceRecord.estadoSifen = 'error';
-        await invoiceRecord.save();
-      }
-
-      res.status(500).json({
-        success: false,
-        error: 'REFRESH_STATUS_CONSULTA_ERROR',
-        message: error.message,
-        estadoActual: 'error'
-      });
-    }
+    const r = await acciones.consultarEstadoEnSet(invoiceRecord);
+    res.status(r.status).json(r.body);
   } catch (error) {
     console.error('❌ Error al actualizar estado:', error);
-    res.status(500).json({
-      success: false,
-      error: 'REFRESH_STATUS_ERROR',
-      message: error.message
-    });
+    res.status(500).json({ success: false, error: 'REFRESH_STATUS_ERROR', message: error.message });
   }
 });
 
@@ -964,7 +746,7 @@ router.get('/:id/download-xml', async (req, res) => {
   try {
     const invoice = await Invoice.findById(req.params.id);
 
-    if (!invoice) {
+    if (!invoice || !perteneceAlAlcance(req, invoice.empresaId)) {
       return res.status(404).json({ success: false, error: 'FACTURA_NOT_FOUND', message: 'Factura no encontrada' });
     }
 
@@ -1014,7 +796,7 @@ router.get('/:id/download-pdf', async (req, res) => {
   try {
     const invoice = await Invoice.findById(req.params.id);
 
-    if (!invoice) {
+    if (!invoice || !perteneceAlAlcance(req, invoice.empresaId)) {
       return res.status(404).json({ success: false, error: 'FACTURA_NOT_FOUND', message: 'Factura no encontrada' });
     }
 
@@ -1064,49 +846,19 @@ router.get('/:id/download-pdf', async (req, res) => {
   }
 });
 
-// Eliminar una factura específica por ID
-router.delete('/:id', async (req, res) => {
+// Eliminar una factura específica por ID (solo si nunca existió en SET)
+router.delete('/:id', verificarPermiso('facturas:eliminar'), async (req, res) => {
   try {
-    const { id } = req.params;
-
-    const invoice = await Invoice.findById(id).populate('grupoLoteId', 'descripcion');
-
-    if (!invoice) {
-      return res.status(404).json({
-        success: false,
-        error: 'FACTURA_NOT_FOUND',
-        message: 'Factura no encontrada'
-      });
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice || !perteneceAlAlcance(req, invoice.empresaId)) {
+      return res.status(404).json({ success: false, error: 'FACTURA_NOT_FOUND', message: 'Factura no encontrada' });
     }
-
-    if (invoice.grupoLoteId) {
-      return res.status(400).json({
-        success: false,
-        error: 'FACTURA_BLOQUEADA_POR_LOTE',
-        message: `No se puede eliminar: la factura pertenece al lote "${invoice.grupoLoteId.descripcion || invoice.grupoLoteId._id}"`,
-        bloqueadoPorLote: true,
-        loteId: invoice.grupoLoteId._id
-      });
-    }
-
-    await Invoice.findByIdAndDelete(id);
-
-    await OperationLog.deleteMany({ invoiceId: id });
-
-    console.log(`🗑️ Factura eliminada: ${id}`);
-
-    res.status(200).json({
-      success: true,
-      message: 'Factura eliminada exitosamente',
-      deletedId: id
-    });
+    const r = await acciones.eliminarFactura(invoice);
+    if (r.status === 200) console.log(`🗑️ Factura eliminada: ${invoice.correlativo} (${invoice._id})`);
+    res.status(r.status).json(r.body);
   } catch (error) {
     console.error('Error al eliminar factura:', error);
-    res.status(500).json({
-      success: false,
-      error: 'FACTURA_DELETE_ERROR',
-      message: error.message
-    });
+    res.status(500).json({ success: false, error: 'INVOICE_DELETE_ERROR', message: error.message });
   }
 });
 

@@ -30,9 +30,41 @@ const empresaSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
-  
+
+  // Datos del emisor para el DTE. Si están cargados, las integraciones pueden
+  // omitir param.establecimientos / param.actividadesEconomicas / etc. en cada
+  // factura: procesarFacturaService los toma de acá como fallback.
+  tipoContribuyente: {
+    type: Number,
+    enum: [1, 2]              // 1 = persona física, 2 = persona jurídica
+  },
+  tipoRegimen: {
+    type: Number,
+    min: 1,
+    max: 8                    // 1 = Régimen de Turismo ... 8 = Régimen Contable
+  },
+  actividadesEconomicas: [{
+    _id: false,
+    codigo: { type: String, required: true, trim: true },
+    descripcion: { type: String, required: true, trim: true }
+  }],
+  establecimientos: [{
+    _id: false,
+    codigo: { type: String, required: true, trim: true },        // '001'
+    denominacion: { type: String, required: true, trim: true },
+    direccion: { type: String, trim: true },
+    numeroCasa: { type: String, trim: true },
+    departamento: Number,
+    departamentoDescripcion: String,
+    distrito: Number,
+    distritoDescripcion: String,
+    ciudad: Number,
+    ciudadDescripcion: String,
+    telefono: String,
+    email: String
+  }],
+
   // Configuración SIFEN v150 (datos específicos de cada empresa)
-  // NOTA: Establecimiento y Punto de Emisión se generan automáticamente según SIFEN v150
   configuracionSifen: {
     // Timbrado proporcionado por SET
     timbrado: {
@@ -41,6 +73,33 @@ const empresaSchema = new mongoose.Schema({
       default: '12345678',
       maxlength: 8
     },
+    // Fecha de inicio de vigencia del timbrado (YYYY-MM-DD): va en el DTE
+    // como dFeIniT. Si falta, se usa la del payload.
+    timbradoFecha: {
+      type: String,
+      match: /^\d{4}-\d{2}-\d{2}$/
+    },
+    // Establecimiento y punto de expedición POR DEFECTO para la emisión:
+    // se usan cuando la factura no trae data.establecimiento / data.punto.
+    // Cada punto lleva su propia numeración correlativa independiente.
+    establecimiento: {
+      type: String,
+      default: '001',
+      maxlength: 3
+    },
+    puntoExpedicion: {
+      type: String,
+      default: '001',
+      maxlength: 3
+    },
+    // Puntos de expedición ADICIONALES habilitados para esta empresa. El
+    // payload solo puede pedir el punto por defecto o uno de esta lista: así
+    // una integración no emite por error en un rango que pertenece a otro
+    // sistema de la misma empresa.
+    puntosExpedicion: [{
+      type: String,
+      maxlength: 3
+    }],
     // CSC - Código Secreto del Contribuyente (proporcionado por SET)
     idCSC: {
       type: String,
@@ -69,9 +128,97 @@ const empresaSchema = new mongoose.Schema({
       type: String,
       enum: ['normal', 'lotes'],
       default: 'normal'
+    },
+    // Validación del receptor pre-SIFEN (services/receptorValidator.js):
+    //   'estricto'    → errores rechazan la emisión con 400 RECEPTOR_INVALIDO
+    //   'advertencia' → normaliza + registra en OperationLog sin rechazar
+    //   'off'         → sin validación (escape hatch)
+    validacionReceptor: {
+      type: String,
+      enum: ['estricto', 'advertencia', 'off'],
+      default: 'advertencia'
+    },
+    // Monedas en las que la empresa acepta emitir (política contable).
+    // SIFEN admite cualquier ISO 4217, pero la contabilidad define cuáles
+    // usa: una emisión en otra moneda se rechaza con MONEDA_NO_PERMITIDA.
+    monedasPermitidas: {
+      type: [String],
+      default: ['PYG', 'USD']
     }
   },
   
+  // Notificaciones al integrador cuando una factura llega a estado final
+  notificaciones: {
+    // URL que recibe un POST firmado (X-DTE-Firma: HMAC-SHA256 del body)
+    webhookUrl: {
+      type: String,
+      trim: true
+    },
+    // Secreto para firmar el webhook (el integrador verifica la firma)
+    webhookSecret: {
+      type: String
+    },
+    // Enviar el KUDE (PDF) + XML por email al cliente al aprobarse.
+    // Usa el proveedor SMTP seleccionado (smtpProviderId); si no hay,
+    // cae a las variables de entorno SMTP_* del servidor.
+    emailAutomatico: {
+      type: Boolean,
+      default: false
+    },
+    // Proveedor SMTP con el que se envían los emails de esta empresa
+    smtpProviderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'SmtpProvider',
+      default: null
+    }
+  },
+
+  // Actualización automática de las cotizaciones de moneda extranjera desde
+  // un proveedor del catálogo (services/cotizacionProveedores.js). Apagada por
+  // defecto: mientras esté apagada, la cotización la sigue declarando el usuario.
+  cotizacionesAutomaticas: {
+    activo: {
+      type: Boolean,
+      default: false
+    },
+    // id del catálogo hardcodeado; NUNCA una URL
+    proveedor: {
+      type: String,
+      default: 'sistemaaguila'
+    },
+    // monedas a sincronizar (ISO 4217). Vacío = ninguna.
+    monedas: {
+      type: [String],
+      default: ['USD']
+    },
+    // qué valor del par se declara como cotización
+    tipoValor: {
+      type: String,
+      enum: ['compra', 'venta', 'promedio'],
+      default: 'venta'
+    },
+    // Guarda de seguridad: si el valor nuevo se aparta de la cotización vigente
+    // más que este porcentaje, NO se aplica solo y queda para revisión manual.
+    // Evita que un error de la fuente se cuele en documentos fiscales firmados.
+    variacionMaximaPct: {
+      type: Number,
+      default: 10,
+      min: 0.1,
+      max: 100
+    },
+    // Lock de exclusión entre corridas (worker vs. "Sincronizar ahora"): lo
+    // toma quien va a salir a la fuente y lo suelta al terminar. Vencido (60 s)
+    // se puede volver a tomar, así un proceso caído no bloquea para siempre.
+    sincronizandoDesde: Date,
+    // Resultado del último intento (para mostrar en la UI y diagnosticar)
+    ultimaSincronizacion: {
+      en: Date,
+      estado: { type: String, enum: ['ok', 'sin_cambios', 'pendiente_fuente', 'bloqueada', 'error'] },
+      fechaCotizacion: String,
+      mensaje: String
+    }
+  },
+
   // Certificado digital (solo metadatos, archivo en filesystem)
   certificado: {
     nombreArchivo: String,
@@ -89,6 +236,15 @@ const empresaSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
+    index: true
+  },
+
+  // Usuarios (además del dueño) que ven la empresa y operan sus documentos.
+  // No pueden cambiar la configuración ni el certificado. Lo administra un
+  // admin desde Usuarios.
+  usuariosConAcceso: {
+    type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    default: [],
     index: true
   },
   

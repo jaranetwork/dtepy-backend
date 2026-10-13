@@ -31,7 +31,7 @@ exports.crearApiKey = async (req, res) => {
       message: 'API Key creada exitosamente',
       data: {
         id: apiKey._id,
-        key: apiKey.key,  // ← Solo se muestra una vez!
+        key: apiKey._plainKey,  // ← Solo se muestra una vez (no queda en la BD)
         nombre: apiKey.nombre,
         descripcion: apiKey.descripcion,
         permisos: apiKey.permisos,
@@ -68,7 +68,8 @@ exports.listarApiKeys = async (req, res) => {
         expiracion: key.expiracion,
         ultimoUso: key.ultimoUso,
         fechaCreacion: key.fechaCreacion,
-        keyParcial: key.key ? `${key.key.substring(0, 8)}...${key.key.substring(key.key.length - 8)}` : 'N/A'
+        // keyParcial guardado; fallback para docs anteriores a la migración 002
+        keyParcial: key.keyParcial || (key.key ? `${key.key.substring(0, 8)}...${key.key.substring(key.key.length - 8)}` : 'N/A')
       }))
     });
   } catch (error) {
@@ -123,7 +124,7 @@ exports.obtenerApiKey = async (req, res) => {
     const apiKey = await ApiKey.findOne({ 
       _id: id, 
       usuario: req.usuario._id 
-    }).select('-keyHash');
+    }).select('-keyHash -key');
 
     if (!apiKey) {
       return res.status(404).json({
@@ -163,11 +164,10 @@ exports.renovarApiKey = async (req, res) => {
       });
     }
 
-    // Generar nueva key
-    const nuevaKey = crypto.randomBytes(32).toString('hex');
-    apiKey.key = nuevaKey;
-    apiKey.keyHash = crypto.createHash('sha256').update(nuevaKey).digest('hex');
-    
+    // Generar nueva key (el hook pre-save deriva hash + parcial
+    // y descarta el texto plano)
+    apiKey.key = crypto.randomBytes(32).toString('hex');
+
     await apiKey.save();
 
     res.status(200).json({
@@ -175,7 +175,7 @@ exports.renovarApiKey = async (req, res) => {
       message: 'API Key renovada exitosamente',
       data: {
         id: apiKey._id,
-        key: apiKey.key,  // ← Solo se muestra una vez!
+        key: apiKey._plainKey,  // ← Solo se muestra una vez (no queda en la BD)
         nombre: apiKey.nombre,
         fechaCreacion: apiKey.fechaCreacion
       },

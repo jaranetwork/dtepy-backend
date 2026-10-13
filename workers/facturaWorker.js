@@ -8,9 +8,11 @@
  */
 
 require('dotenv').config();
+const { ocultarCredenciales } = require('../utils/ocultarCredenciales');
 const mongoose = require('mongoose');
-const { facturaQueue, kudeQueue } = require('../queues/facturaQueue');
+const { facturaQueue, kudeQueue, describirRedis } = require('../queues/facturaQueue');
 const { procesarFactura, generarKUDE } = require('../services/procesarFacturaService');
+const { ESTADOS_NUNCA_EN_SET } = require('../services/numeracionService');
 const Invoice = require('../models/Invoice');
 const OperationLog = require('../models/OperationLog');
 const path = require('path');
@@ -43,7 +45,10 @@ facturaQueue.process('generar-factura', async (job) => {
   console.log(`🔄 ========================================`);
   
   let invoice = null;
-  
+  // Respuesta de procesarFactura. Si llegó y no es rechazo/error, SET ya tiene
+  // el documento (o lo va a tener: quedó en un lote).
+  let resultado = null;
+
   try {
     // Actualizar estado a "procesando"
     await job.progress(10);
@@ -61,8 +66,8 @@ facturaQueue.process('generar-factura', async (job) => {
     // ========================================
     // PROCESAR FACTURA
     // ========================================
-    const resultado = await procesarFactura(datosFactura, empresaId, job, facturaId);
-    
+    resultado = await procesarFactura(datosFactura, empresaId, job, facturaId);
+
     await job.progress(95);
     
     // ========================================
@@ -172,6 +177,19 @@ facturaQueue.process('generar-factura', async (job) => {
     } else {
       console.log(`📋 [WORKER] Factura ${facturaId} ${resultado.estado} - CDC: ${resultado.cdc}`);
     }
+
+    // Canal sync (normal): el estado final se conoce acá mismo. Webhook +
+    // email del KUDE, fire-and-forget. (En el canal de lotes lo dispara
+    // envioLoteService cuando SET resuelve el lote.)
+    if (['rechazado', 'error'].includes(resultado.estado)) {
+      const { liberarNumeroRechazado } = require('../services/numeracionService');
+      await liberarNumeroRechazado(facturaId);
+    }
+
+    if (['aceptado', 'observado', 'rechazado', 'error'].includes(resultado.estado)) {
+      const { notificarFacturaFinal } = require('../services/notificacionService');
+      notificarFacturaFinal(facturaId);
+    }
     
     await job.progress(100);
     
@@ -210,8 +228,26 @@ facturaQueue.process('generar-factura', async (job) => {
   } catch (error) {
     console.error(`❌ [WORKER] Error procesando factura ${facturaId}:`, error.message);
 
-    // Actualizar factura con error
-    if (invoice) {
+    // El fallo fue DESPUÉS de la respuesta de SET (Redis al reportar progreso,
+    // la base, la bitácora): el documento existe allá. Marcarlo 'error'
+    // contradiría a SET y el aviso llevaría a la integración a reemitirlo con
+    // otro número ('error' libera la Idempotency-Key). Se deja el veredicto
+    // como está (un 'enviado' se puede consultar en SET desde el panel).
+    const documentoEnSet = Boolean(resultado) && !ESTADOS_NUNCA_EN_SET.includes(resultado.estado);
+
+    if (invoice && documentoEnSet) {
+      try {
+        await OperationLog.create({
+          invoiceId: invoice._id,
+          tipoOperacion: 'error',
+          descripcion: `Error en worker después de la respuesta de SET (${resultado.estado}), el estado no se modifica: ${error.message}`,
+          estado: 'warning'
+        });
+      } catch (logError) {
+        console.error('❌ [WORKER] No se pudo registrar el error:', logError.message);
+      }
+    } else if (invoice) {
+      // Actualizar factura con error
       invoice.estadoSifen = 'error';
       invoice.estadoVisual = 'error';  // Para que se muestre rojo como "error" en frontend
       invoice.proceso = 'No completado';  // Marcar como incompletado para permitir reintentar
@@ -224,6 +260,13 @@ facturaQueue.process('generar-factura', async (job) => {
         descripcion: `Error en worker: ${error.message}`,
         estado: 'error'
       });
+
+      // 'error' también es estado final (la cola corre con attempts: 1): sin
+      // este aviso la integración veía la factura "encolada" para siempre.
+      // Webhook fire-and-forget, igual que el camino exitoso. El número NO se
+      // libera: el fallo pudo ser después de que el documento llegara a SET.
+      const { notificarFacturaFinal } = require('../services/notificacionService');
+      notificarFacturaFinal(invoice._id.toString());
     }
 
     // Lanzar error para que Bull reintente
@@ -335,7 +378,7 @@ process.on('SIGTERM', async () => {
 console.log('\n👷 ========================================');
 console.log('👷   WORKER DE FACTURACIÓN INICIADO');
 console.log('👷 ========================================');
-console.log(`📍 Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
-console.log(`📍 MongoDB: ${MONGODB_URI}`);
+console.log(`📍 Redis: ${describirRedis()}`);
+console.log(`📍 MongoDB: ${ocultarCredenciales(MONGODB_URI)}`);
 console.log('📋 Escuchando jobs de facturación...');
 console.log('=========================================\n');

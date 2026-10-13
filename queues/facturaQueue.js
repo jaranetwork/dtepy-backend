@@ -6,16 +6,66 @@
 const Queue = require('bull');
 const path = require('path');
 
-// Configuración de Redis
-const redisConfig = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: process.env.REDIS_PORT || 6379,
+// ========================================
+// CONFIGURACIÓN DE REDIS
+// ========================================
+// Acepta una URL completa (lo que entregan Dokploy, Railway, Upstash...)
+// o variables sueltas. La contraseña es opcional en ambos casos.
+//
+//   REDIS_URL=redis://default:contrasena@host:6379
+//   REDIS_URL=rediss://default:contrasena@host:6379/2   (TLS + base 2)
+//   REDIS_HOST=host  REDIS_PORT=6379  [REDIS_PASSWORD=...]
+
+const OPCIONES_BASE = {
   maxRetriesPerRequest: null,  // Importante para Bull
-  retryStrategy: (times) => {
-    if (times > 3) return null;  // Dejar de reintentar después de 3 intentos
-    return Math.min(times * 200, 2000);  // Delay exponencial
-  }
+  retryStrategy: (intentos) => (intentos > 3 ? null : Math.min(intentos * 200, 2000))
 };
+
+// Las claves sin valor se descartan para que ioredis aplique sus defaults.
+const sinVacios = (obj) =>
+  Object.fromEntries(Object.entries(obj).filter(([, valor]) => valor !== undefined && valor !== ''));
+
+function desdeUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (error) {
+    throw new Error(`REDIS_URL no es una URL válida: ${url}`);
+  }
+
+  const usuario = decodeURIComponent(parsed.username);
+
+  return {
+    host: parsed.hostname,
+    port: Number(parsed.port) || 6379,
+    password: decodeURIComponent(parsed.password) || undefined,
+    // 'default' es el usuario implícito: omitirlo hace que ioredis mande
+    // `AUTH <password>` a secas, compatible también con Redis < 6.
+    username: usuario && usuario !== 'default' ? usuario : undefined,
+    db: Number(parsed.pathname.slice(1)) || undefined,
+    tls: parsed.protocol === 'rediss:' ? {} : undefined
+  };
+}
+
+function desdeVariables() {
+  return {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: Number(process.env.REDIS_PORT) || 6379,
+    password: process.env.REDIS_PASSWORD,
+    username: process.env.REDIS_USERNAME,
+    db: Number(process.env.REDIS_DB) || undefined
+  };
+}
+
+const url = process.env.REDIS_URL || process.env.REDIS_URI;
+const redisConfig = { ...OPCIONES_BASE, ...sinVacios(url ? desdeUrl(url) : desdeVariables()) };
+
+/** Descripción para logs, sin credenciales. */
+function describirRedis() {
+  const { host, port, db, password, tls } = redisConfig;
+  const esquema = tls ? 'rediss' : 'redis';
+  return `${esquema}://${host}:${port}${db ? `/${db}` : ''}${password ? ' (con auth)' : ''}`;
+}
 
 // Cola principal de facturación
 const facturaQueue = new Queue('facturacion', {
@@ -251,6 +301,7 @@ async function retryFailedJobs(queue, limit = 10) {
 // ========================================
 
 module.exports = {
+  describirRedis,
   facturaQueue,
   kudeQueue,
   getQueueStats,

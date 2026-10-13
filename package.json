@@ -9,11 +9,13 @@
     "worker": "node workers/facturaWorker.js",
     "worker:dev": "nodemon workers/facturaWorker.js",
     "worker:lote": "node workers/consultaResultadoLoteWorker.js",
-    "start:all": "concurrently \"npm start\" \"npm run worker\" \"npm run worker:lote\"",
+    "start:all": "concurrently \"npm start\" \"npm run worker\" \"npm run worker:lote\" \"npm run worker:cotizacion\"",
     "dev:all": "concurrently \"npm run dev\" \"npm run worker:dev\"",
     "crear-admin": "node crear-admin.js",
-    "postinstall": "node patch-kude.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "kude:prepare": "node scripts/kude-prepare.js",
+    "kude:doctor": "node scripts/kude-doctor.js",
+    "test": "node --test \"tests/**/*.test.js\"",
+    "worker:cotizacion": "node workers/cotizacionWorker.js"
   },
   "keywords": [
     "sifen",
@@ -32,17 +34,29 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "express-rate-limit": "^8.6.2",
     "facturacionelectronicapy-kude": "^1.0.18",
     "facturacionelectronicapy-qrgen": "^1.0.9",
     "facturacionelectronicapy-setapi": "^1.0.34",
-    "facturacionelectronicapy-xmlgen": "^1.0.280",
+    "facturacionelectronicapy-xmlgen": "1.0.283",
     "facturacionelectronicapy-xmlsign": "^1.0.28",
+    "helmet": "^8.3.0",
     "ioredis": "^5.9.3",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^7.5.0",
-    "multer": "^2.0.2"
+    "multer": "^2.0.2",
+    "nodemailer": "^9.0.6",
+    "swagger-ui-express": "^5.0.1",
+    "xml2js": "^0.6.2"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
+  },
+  "overrides": {
+    "xml2js": "^0.6.2",
+    "node-forge": "^1.4.0",
+    "axios": "^1.17.1",
+    "xmldom": "npm:@xmldom/xmldom@^0.8.11",
+    "uuid": "^11.1.1"
   }
 }

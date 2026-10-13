@@ -97,3 +97,6 @@ scripts/migrar-*.js
 # Lock files (opcional - algunos prefieren subirlos)
 # package-lock.json
 # yarn.lock
+
+# Plantillas .jasper preparadas en runtime (ver services/kudeRunner.js)
+.kude/

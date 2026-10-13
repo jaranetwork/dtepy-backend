@@ -9,7 +9,7 @@ const operationLogSchema = new mongoose.Schema({
   tipoOperacion: {
     type: String,
     required: true,
-    enum: ['inicio_proceso', 'generacion_xml', 'firma_xml', 'envio_sifen', 'respuesta_sifen', 'error', 'envio_exitoso', 'reintento', 'reintento_respuesta', 'actualizacion_estado', 'consulta_estado', 'error_consulta_estado', 'error_respuesta_set', 'encolado_lote', 'envio_lote']
+    enum: ['inicio_proceso', 'validacion_receptor', 'generacion_xml', 'firma_xml', 'envio_sifen', 'respuesta_sifen', 'error', 'envio_exitoso', 'reintento', 'reintento_respuesta', 'actualizacion_estado', 'consulta_estado', 'error_consulta_estado', 'error_respuesta_set', 'encolado_lote', 'envio_lote']
   },
   descripcion: {
     type: String,

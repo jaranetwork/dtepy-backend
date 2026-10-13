@@ -1,94 +1,105 @@
 /**
- * Utilidades para manejo de fechas
- * Especialmente para normalizar fechas provenientes de ERPNext
+ * Utilidades para manejo de fechas de emisión.
+ *
+ * SIFEN trabaja en hora local paraguaya (dFeEmiDE = yyyy-MM-ddTHH:mm:ss, sin
+ * zona). Regla de esta utilidad:
+ *
+ *  - Un datetime SIN zona ("2026-08-31T09:00:00", con o sin fracción de
+ *    segundos, como manda ERPNext o la tienda) se toma como hora local
+ *    literal: sale al XML exactamente como llegó.
+ *  - Un datetime CON zona ("...Z" o "...-03:00"), un Date o un timestamp se
+ *    convierten a la hora de America/Asuncion.
+ *  - Una fecha sola ("2026-08-31") se preserva.
+ *
+ * Nunca se pasa por `toISOString()`: eso devolvía la hora en UTC y, con el
+ * contenedor en TZ=America/Asuncion, el XML salía con 3 horas de más (y una
+ * emisión retroactiva de última hora caía al día siguiente).
  */
+
+const ZONA_HORARIA_SIFEN = process.env.SIFEN_TIMEZONE || 'America/Asuncion';
+
+const RE_FECHA_SOLA = /^\d{4}-\d{2}-\d{2}$/;
+// yyyy-MM-dd[T ]HH:mm[:ss][.fracción] sin indicador de zona
+const RE_DATETIME_SIN_ZONA = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(:\d{2})?(?:\.(\d{1,9}))?$/;
 
 /**
- * Normaliza datetime de ERPNext (microsegundos) a formato JavaScript (milisegundos)
- * ERPNext envía: 2026-02-24T15:12:58.715809 (6 dígitos = microsegundos)
- * JavaScript espera: 2026-02-24T15:12:58.715Z (3 dígitos = milisegundos)
- * 
- * @param {string|Date} datetimeStr - String o objeto Date a normalizar
- * @param {boolean} formatoSIFEN - Si es true, devuelve formato SIFEN (sin milisegundos ni Z)
- * @returns {string} Fecha normalizada en formato ISO o SIFEN
+ * Hora de pared de `date` en la zona indicada, como "yyyy-MM-ddTHH:mm:ss".
  */
-function normalizarDatetime(datetimeStr, formatoSIFEN = false) {
-  if (!datetimeStr) return new Date().toISOString();
+function horaLocal(date, zona = ZONA_HORARIA_SIFEN) {
+  const partes = {};
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: zona,
+    hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  }).formatToParts(date).forEach(({ type, value }) => { partes[type] = value; });
+  const hora = partes.hour === '24' ? '00' : partes.hour;
+  return `${partes.year}-${partes.month}-${partes.day}T${hora}:${partes.minute}:${partes.second}`;
+}
 
-  // Si ya es un objeto Date, convertir a ISO
-  if (datetimeStr instanceof Date) {
-    const iso = datetimeStr.toISOString();
-    return formatoSIFEN ? iso.replace(/\.\d{3}Z$/, '') : iso;
-  }
+function armar(base, milisegundos, formatoSIFEN) {
+  return formatoSIFEN ? base : `${base}.${milisegundos}`;
+}
 
-  // Si es número (timestamp), convertir a Date
-  if (typeof datetimeStr === 'number') {
-    const date = new Date(datetimeStr);
-    const iso = date.toISOString();
-    return formatoSIFEN ? iso.replace(/\.\d{3}Z$/, '') : iso;
-  }
-
-  // Si es string, procesar
-  if (typeof datetimeStr === 'string') {
-    // Patrón para detectar datetime con microsegundos: YYYY-MM-DDTHH:MM:SS.ffffff
-    const matchMicrosegundos = datetimeStr.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d{6})(.*)$/);
-
-    if (matchMicrosegundos) {
-      // Convertir microsegundos a milisegundos (cortar últimos 3 dígitos)
-      const [, parteBase, microsegundos, resto] = matchMicrosegundos;
-      const milisegundos = microsegundos.substring(0, 3);
-      const resultado = `${parteBase}.${milisegundos}${resto || 'Z'}`;
-      return formatoSIFEN ? resultado.replace(/\.\d{3}Z$/, '') : resultado;
-    }
-
-    // Si no tiene microsegundos, intentar parsear directamente
-    try {
-      const date = new Date(datetimeStr);
-      if (!isNaN(date.getTime())) {
-        const iso = date.toISOString();
-        return formatoSIFEN ? iso.replace(/\.\d{3}Z$/, '') : iso;
-      }
-    } catch (e) {
-      console.warn(`⚠️ Fecha inválida: ${datetimeStr}`);
-    }
-  }
-
-  // Fallback: devolver fecha actual
-  const now = new Date();
-  const iso = now.toISOString();
-  return formatoSIFEN ? iso.replace(/\.\d{3}Z$/, '') : iso;
+function desdeDate(date, formatoSIFEN, zona) {
+  const ms = String(date.getMilliseconds()).padStart(3, '0');
+  return armar(horaLocal(date, zona), ms, formatoSIFEN);
 }
 
 /**
- * Normaliza todas las fechas en un objeto de factura de ERPNext
- * Busca recursivamente campos de fecha y los normaliza
- * Preserva el formato YYYY-MM-DD si ya está en ese formato
+ * Normaliza un datetime al formato que espera el resto del sistema.
  *
- * @param {Object} obj - Objeto a procesar
- * @returns {Object} Objeto con fechas normalizadas
+ * @param {string|number|Date} valor
+ * @param {boolean} [formatoSIFEN=false]  true → "yyyy-MM-ddTHH:mm:ss" (xmlgen);
+ *                                        false → "yyyy-MM-ddTHH:mm:ss.SSS" (hora local, sin Z)
+ * @param {string} [zona]                 zona IANA para valores con zona/Date/timestamp
+ * @returns {string}
  */
-function normalizarFechasEnObjeto(obj) {
+function normalizarDatetime(valor, formatoSIFEN = false, zona = ZONA_HORARIA_SIFEN) {
+  if (valor === null || valor === undefined || valor === '') {
+    return desdeDate(new Date(), formatoSIFEN, zona);
+  }
+
+  if (valor instanceof Date) {
+    if (!Number.isNaN(valor.getTime())) return desdeDate(valor, formatoSIFEN, zona);
+  } else if (typeof valor === 'number') {
+    const date = new Date(valor);
+    if (!Number.isNaN(date.getTime())) return desdeDate(date, formatoSIFEN, zona);
+  } else if (typeof valor === 'string') {
+    const texto = valor.trim();
+
+    if (RE_FECHA_SOLA.test(texto)) return texto;
+
+    const m = texto.match(RE_DATETIME_SIN_ZONA);
+    if (m) {
+      const base = `${m[1]}T${m[2]}${m[3] || ':00'}`;
+      const ms = (m[4] || '').padEnd(3, '0').slice(0, 3);
+      return armar(base, ms, formatoSIFEN);
+    }
+
+    const date = new Date(texto);
+    if (!Number.isNaN(date.getTime())) return desdeDate(date, formatoSIFEN, zona);
+  }
+
+  console.warn(`⚠️ Fecha inválida: ${valor}`);
+  return desdeDate(new Date(), formatoSIFEN, zona);
+}
+
+const CAMPOS_FECHA = ['fecha', 'fecha_nacimiento', 'fecha_emision', 'fecha_vencimiento', 'created', 'modified', 'fechaEnvio'];
+
+function esValorFecha(value) {
+  return typeof value === 'string' || typeof value === 'number' || value instanceof Date;
+}
+
+function recorrerFechas(obj, transformar) {
   if (!obj || typeof obj !== 'object') return obj;
 
-  const camposFecha = ['fecha', 'fecha_nacimiento', 'fecha_emision', 'fecha_vencimiento', 'created', 'modified', 'fechaEnvio'];
-
-  for (const key in obj) {
-    if (obj.hasOwnProperty(key)) {
-      const value = obj[key];
-
-      // Si es un campo de fecha conocido
-      if (camposFecha.includes(key) && (typeof value === 'string' || typeof value === 'number' || value instanceof Date)) {
-        // Si ya está en formato YYYY-MM-DD, preservarlo
-        if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-          // No convertir, ya está en formato SIFEN
-          continue;
-        }
-        obj[key] = normalizarDatetime(value);
-      }
-      // Si es un objeto o array, procesar recursivamente
-      else if (value && typeof value === 'object') {
-        normalizarFechasEnObjeto(value);
-      }
+  for (const key of Object.keys(obj)) {
+    const value = obj[key];
+    if (CAMPOS_FECHA.includes(key) && esValorFecha(value)) {
+      obj[key] = transformar(value);
+    } else if (value && typeof value === 'object') {
+      recorrerFechas(value, transformar);
     }
   }
 
@@ -96,71 +107,38 @@ function normalizarFechasEnObjeto(obj) {
 }
 
 /**
- * Obtiene fecha en formato SIFEN v150
- * Si la fecha ya es YYYY-MM-DD, la preserva
- * Si tiene hora, devuelve YYYY-MM-DDTHH:MM:SS (sin milisegundos ni Z)
- * @param {string|Date} fecha - Fecha a convertir
- * @returns {string} Fecha en formato SIFEN
+ * Normaliza (en el lugar) todos los campos de fecha conocidos de un payload.
+ * Preserva las fechas solas (yyyy-MM-dd).
+ */
+function normalizarFechasEnObjeto(obj) {
+  return recorrerFechas(obj, (value) => normalizarDatetime(value));
+}
+
+/**
+ * Fecha en formato SIFEN v150: yyyy-MM-dd se preserva; con hora devuelve
+ * yyyy-MM-ddTHH:mm:ss (sin milisegundos ni zona).
  */
 function formatoFechaSIFEN(fecha) {
-  // Si ya está en formato YYYY-MM-DD, preservarlo
-  if (typeof fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
-    return fecha;
-  }
   return normalizarDatetime(fecha, true);
 }
 
 /**
- * Convierte todas las fechas en un objeto a formato SIFEN para librería xmlgen
- * Preserva el formato YYYY-MM-DD si ya está en ese formato
- * @param {Object} obj - Objeto a procesar
- * @returns {Object} Objeto con fechas en formato SIFEN
+ * Convierte (en el lugar) todas las fechas conocidas de un objeto al formato
+ * que acepta facturacionelectronicapy-xmlgen.
  */
 function convertirFechasASIFEN(obj) {
-  if (!obj || typeof obj !== 'object') return obj;
-
-  const camposFecha = ['fecha', 'fecha_nacimiento', 'fecha_emision', 'fecha_vencimiento', 'created', 'modified', 'fechaEnvio'];
-
-  for (const key in obj) {
-    if (obj.hasOwnProperty(key)) {
-      const value = obj[key];
-
-      // Si es un campo de fecha conocido
-      if (camposFecha.includes(key) && (typeof value === 'string' || typeof value === 'number' || value instanceof Date)) {
-        // Si ya está en formato YYYY-MM-DD (sin hora), preservarlo
-        if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-          // Ya está en formato SIFEN, no convertir
-          continue;
-        }
-        obj[key] = formatoFechaSIFEN(value);
-      }
-      // Si es un objeto o array, procesar recursivamente
-      else if (value && typeof value === 'object') {
-        convertirFechasASIFEN(value);
-      }
-    }
-  }
-
-  return obj;
+  return recorrerFechas(obj, formatoFechaSIFEN);
 }
 
-/**
- * Valida si una fecha es válida
- * @param {string|Date} fecha - Fecha a validar
- * @returns {boolean} True si es válida
- */
 function esFechaValida(fecha) {
   if (!fecha) return false;
-  
-  try {
-    const date = new Date(fecha);
-    return !isNaN(date.getTime());
-  } catch (e) {
-    return false;
-  }
+  const date = new Date(fecha);
+  return !Number.isNaN(date.getTime());
 }
 
 module.exports = {
+  ZONA_HORARIA_SIFEN,
+  horaLocal,
   normalizarDatetime,
   normalizarFechasEnObjeto,
   formatoFechaSIFEN,

@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { verificarToken } = require('../middleware/auth');
+const { verificarToken, verificarPermiso, requerirSesionAdmin } = require('../middleware/auth');
 
 router.use(verificarToken);
 
-router.get('/stats', async (req, res) => {
+// Lecturas: cualquier sesión, o API Key con stats:leer.
+// Limpiezas: solo sesión admin (clear-all descarta trabajos pendientes).
+
+router.get('/stats', verificarPermiso('stats:leer'), async (req, res) => {
   try {
     const { getQueueStats } = require('../queues/facturaQueue');
     const stats = await getQueueStats();
@@ -23,7 +26,7 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-router.get('/jobs', async (req, res) => {
+router.get('/jobs', verificarPermiso('stats:leer'), async (req, res) => {
   try {
     const { limit = 20 } = req.query;
     const { getRecentJobs } = require('../queues/facturaQueue');
@@ -43,7 +46,7 @@ router.get('/jobs', async (req, res) => {
   }
 });
 
-router.post('/clear', async (req, res) => {
+router.post('/clear', requerirSesionAdmin, async (req, res) => {
   try {
     const { queue = 'facturacion', keep = 0 } = req.body;
     const { facturaQueue, kudeQueue, cleanCompletedJobs } = require('../queues/facturaQueue');
@@ -65,7 +68,7 @@ router.post('/clear', async (req, res) => {
   }
 });
 
-router.post('/clear-failed', async (req, res) => {
+router.post('/clear-failed', requerirSesionAdmin, async (req, res) => {
   try {
     const { queue = 'facturacion' } = req.body;
     const { facturaQueue, kudeQueue, cleanFailedJobs } = require('../queues/facturaQueue');
@@ -87,7 +90,7 @@ router.post('/clear-failed', async (req, res) => {
   }
 });
 
-router.post('/clear-all', async (req, res) => {
+router.post('/clear-all', requerirSesionAdmin, async (req, res) => {
   try {
     const { queue = 'facturacion' } = req.body;
     const { facturaQueue, kudeQueue, cleanAllJobs } = require('../queues/facturaQueue');
@@ -109,7 +112,7 @@ router.post('/clear-all', async (req, res) => {
   }
 });
 
-router.post('/clear-completed', async (req, res) => {
+router.post('/clear-completed', requerirSesionAdmin, async (req, res) => {
   try {
     const { queue = 'facturacion', keep = 0 } = req.body;
     const { facturaQueue, kudeQueue, cleanCompletedJobs } = require('../queues/facturaQueue');

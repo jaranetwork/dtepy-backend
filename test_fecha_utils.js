@@ -15,17 +15,17 @@ const casosPrueba = [
   {
     descripcion: 'Fecha ERPNext con microsegundos',
     entrada: '2026-02-24T15:12:58.715809',
-    esperado: '2026-02-24T15:12:58.715Z'
+    esperado: '2026-02-24T15:12:58.715'
   },
   {
     descripcion: 'Fecha ISO estándar',
     entrada: '2026-02-24T15:12:58.715Z',
-    esperado: '2026-02-24T15:12:58.715Z'
+    esperado: '2026-02-24T15:12:58.715'
   },
   {
     descripcion: 'Fecha sin zona horaria',
     entrada: '2026-02-24T15:12:58',
-    esperado: '2026-02-24T15:12:58.000Z'
+    esperado: '2026-02-24T15:12:58.000'
   },
   {
     descripcion: 'Fecha con offset',
@@ -35,12 +35,12 @@ const casosPrueba = [
   {
     descripcion: 'Objeto Date',
     entrada: new Date('2026-02-24T15:12:58.715Z'),
-    esperado: '2026-02-24T15:12:58.715Z'
+    esperado: '2026-02-24T15:12:58.715'
   },
   {
     descripcion: 'Timestamp (número)',
     entrada: new Date('2026-02-24T15:12:58.715Z').getTime(),
-    esperado: '2026-02-24T15:12:58.715Z'
+    esperado: '2026-02-24T15:12:58.715'
   },
   {
     descripcion: 'Fecha inválida',

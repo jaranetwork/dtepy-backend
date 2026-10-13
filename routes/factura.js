@@ -1,16 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const Invoice = require('../models/Invoice');
-const { verificarToken } = require('../middleware/auth');
+const { verificarToken, verificarPermiso } = require('../middleware/auth');
+const { cargarAlcance, perteneceAlAlcance } = require('../middleware/alcance');
 
-router.use(verificarToken);
+router.use(verificarToken, verificarPermiso('facturas:leer'), cargarAlcance);
 
 router.get('/estado/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
     const invoice = await Invoice.findById(id);
-    if (!invoice) {
+    if (!invoice || !perteneceAlAlcance(req, invoice.empresaId)) {
       return res.status(404).json({
         success: false,
         error: 'FACTURA_NOT_FOUND',

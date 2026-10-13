@@ -9,6 +9,7 @@
  */
 
 const Evento = require('../models/Evento');
+const { generarIdSifen } = require('../utils/idSifen');
 const Invoice = require('../models/Invoice');
 const Empresa = require('../models/Empresa');
 const certificadoService = require('./certificadoService');
@@ -36,88 +37,57 @@ const TIPOS_EVENTO = {
 };
 
 /**
- * Genera el XML de un evento
+ * Genera el XML de un evento usando el generador OFICIAL de xmlgen.
+ *
+ * IMPORTANTE: no armar este XML a mano. SET rechazaba con "0160 XML mal
+ * formado" un XML artesanal estructuralmente idéntico; el formato exacto que
+ * SET acepta es el que produce xmlgen (rEve Id="1", xsi:schemaLocation con
+ * espacio en gGroupGesEve, sobre SOAP con dId incluido). Verificado en
+ * producción: evento de cancelación aprobado con dCodRes 0600.
+ *
+ * El XML retornado ya viene envuelto en el sobre SOAP: signXMLEvento navega
+ * env:Envelope > env:Body > ... > rEve para firmar, y setapi.evento() lo
+ * envía tal cual (no envuelve).
+ *
  * @param {Object} params - Parámetros del evento
- * @returns {Promise<string>} XML del evento sin firmar
+ * @returns {Promise<string>} XML del evento sin firmar (con sobre SOAP)
  */
 async function generarXMLEvento(params) {
-  const {
+  const { cdc, tipoEvento, descripcion, dId, datosEvento } = params;
+
+  // Fecha de firma en hora de Paraguay explícita (independiente del TZ del
+  // proceso): xmlgen la re-formatea con getHours() locales, y un string sin
+  // zona horaria se parsea/re-formatea sin conversión.
+  const fechaFirmaDigital = new Date()
+    .toLocaleString('sv-SE', { timeZone: 'America/Asuncion' })
+    .replace(' ', 'T');
+
+  const paramsXmlgen = { version: 150 };
+  const datos = {
     cdc,
-    tipoEvento,
-    descripcion,
-    rucEmisor,
-    rucReceptor,
-    usuario
-  } = params;
+    motivo: descripcion,
+    fechaFirmaDigital,
+    ...(datosEvento || {})
+  };
 
-  // Generar ID único para el evento (numérico, hasta 10 dígitos)
-  const idEvento = Math.floor(Math.random() * 1000000000).toString();
-
-  // Fecha del evento (formato SIFEN: YYYY-MM-DDTHH:MM:SS)
-  const fechaEvento = new Date().toISOString().split('.')[0];
-
-  // Versión del formato según Manual Técnico v150
-  const versionFormato = '150';
-
-  // Mapear tipo de evento a código numérico según Manual Técnico v150
-  // Eventos del Emisor: 1=Cancelación, 2=Inutilización
-  // Eventos del Receptor: 10=Acuse, 11=Conformidad, 12=Disconformidad, 13=Desconocimiento
-  let codigoTipoEvento = '12'; // Default: Disconformidad
-  let nombreTipoEvento = descripcion;
-
-  switch(tipoEvento) {
+  switch (tipoEvento) {
     case 'cancelacion':
-      codigoTipoEvento = '1';
-      nombreTipoEvento = 'Cancelación de DTE';
-      break;
-    case 'devolucion_ajuste':
-      codigoTipoEvento = '2';
-      nombreTipoEvento = 'Devolución/Ajuste';
-      break;
+      return FacturaElectronicaPY.generateXMLEventoCancelacion(dId, paramsXmlgen, datos);
     case 'conformidad':
-      codigoTipoEvento = '11';
-      nombreTipoEvento = 'Conformidad del DE';
-      break;
+      return FacturaElectronicaPY.generateXMLEventoConformidad(dId, paramsXmlgen, datos);
     case 'disconformidad':
-      codigoTipoEvento = '12';
-      nombreTipoEvento = 'Disconformidad del DE';
-      break;
+      return FacturaElectronicaPY.generateXMLEventoDisconformidad(dId, paramsXmlgen, datos);
     case 'desconocimiento':
-      codigoTipoEvento = '13';
-      nombreTipoEvento = 'Desconocimiento del DE';
-      break;
+      return FacturaElectronicaPY.generateXMLEventoDesconocimiento(dId, paramsXmlgen, datos);
     case 'notificacion_recepcion':
-      codigoTipoEvento = '10';
-      nombreTipoEvento = 'Acuse del DE';
-      break;
+      return FacturaElectronicaPY.generateXMLEventoNotificacion(dId, paramsXmlgen, datos);
+    case 'devolucion_ajuste':
+      // xmlgen no implementa devolución/ajuste como evento; la devolución se
+      // documenta con una Nota de Crédito electrónica, no con un evento.
+      throw new Error('La devolución/ajuste se realiza con Nota de Crédito electrónica, no con un evento SIFEN');
+    default:
+      throw new Error(`Tipo de evento no soportado: ${tipoEvento}`);
   }
-
-  // Estructura del evento según Manual Técnico v150 - Sección 11.5
-  // Schema XML 19: Evento_v150.xsd
-  // El XML debe tener la estructura: rEnviEventoDe > dEvReg > gGroupGesEve > rGesEve > rEve
-  // El nodo rEve es el que se firma digitalmente
-  const xmlEvento = `<?xml version="1.0" encoding="UTF-8"?>
-<rEnviEventoDe xmlns="http://ekuatia.set.gov.py/sifen/xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dEvReg>
-    <gGroupGesEve>
-      <rGesEve xsi:schemaLocation="http://ekuatia.set.gov.py/sifen/xsd siRecepEvento_v150.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-        <rEve Id="${idEvento}">
-          <dFecFirma>${fechaEvento}</dFecFirma>
-          <dVerFor>${versionFormato}</dVerFor>
-          <dTiGDE>${codigoTipoEvento}</dTiGDE>
-          <gGroupTiEvt>
-            <rGeVeCan>
-              <Id>${cdc}</Id>
-              <mOtEve>${descripcion}</mOtEve>
-            </rGeVeCan>
-          </gGroupTiEvt>
-        </rEve>
-      </rGesEve>
-    </gGroupGesEve>
-  </dEvReg>
-</rEnviEventoDe>`;
-
-  return xmlEvento;
 }
 
 /**
@@ -148,9 +118,9 @@ async function enviarEvento(params) {
       throw new Error('La factura no tiene CDC. Debe estar aprobada por SET para enviar eventos.');
     }
 
-    // Validar que la factura esté aprobada (estado final)
-    if (invoice.estadoSifen !== 'aceptado') {
-      throw new Error(`No se puede enviar evento: La factura está en estado "${invoice.estadoSifen}". Debe estar "aceptado".`);
+    // Validar que la factura esté aprobada por SET (con o sin observación)
+    if (!['aceptado', 'observado'].includes(invoice.estadoSifen)) {
+      throw new Error(`No se puede enviar evento: La factura está en estado "${invoice.estadoSifen}". Debe estar "aceptado" u "observado".`);
     }
 
     const empresa = await Empresa.findById(invoice.empresaId);
@@ -168,13 +138,14 @@ async function enviarEvento(params) {
     // ========================================
     // 2. Generar XML del evento
     // ========================================
+    const idDocumento = generarIdSifen();
+
     const xmlEvento = await generarXMLEvento({
       cdc: invoice.cdc,
       tipoEvento,
       descripcion,
-      rucEmisor: empresa.ruc,
-      rucReceptor: invoice.cliente?.ruc,
-      usuario
+      dId: idDocumento,
+      datosEvento: params.datosEvento
     });
 
     // ========================================
@@ -194,11 +165,10 @@ async function enviarEvento(params) {
     // ========================================
     // 4. Enviar a SET
     // ========================================
-    const idDocumento = crypto.randomBytes(16).toString('hex');
     const ambiente = empresa.configuracionSifen.modo || 'test';
 
     console.log('📤 Enviando evento a SET...');
-    
+
     const respuesta = await setApi.evento(
       idDocumento,
       xmlFirmado,
@@ -212,33 +182,32 @@ async function enviarEvento(params) {
     // ========================================
     // 5. Extraer datos de respuesta
     // ========================================
-    let codigoRetorno = '0000';
-    let mensajeRetorno = 'Evento registrado correctamente';
-    let idEventoSET = null;
-    let estadoEvento = 'registrado';
+    // La respuesta de setapi es un objeto ya parseado (o un string XML en
+    // versiones viejas). El parser anterior buscaba una estructura que SIFEN
+    // no usa y, al fallar, asumia "registrado correctamente": un evento
+    // rechazado por SET quedaba registrado como exitoso.
+    const { extraerCodigoRetorno, extraerMensajeRetorno, extraerEstadoResultado, buscarEnRespuesta } =
+      require('../utils/estadoSifen');
 
-    try {
-      const xml2js = require('xml2js');
-      const respuestaObj = await xml2js.parseStringPromise(respuesta);
-      
-      // Extraer de la respuesta SOAP
-      const body = respuestaObj['soap:Envelope']?.['soap:Body'];
-      if (body) {
-        const respuestaEvento = body['respuestaEvento'] || body['ns2:respuestaEvento'];
-        if (respuestaEvento) {
-          codigoRetorno = respuestaEvento['codigoRetorno']?.[0] || '0000';
-          mensajeRetorno = respuestaEvento['mensajeRetorno']?.[0] || mensajeRetorno;
-          idEventoSET = respuestaEvento['idEvento']?.[0];
-        }
-      }
+    const codigoRetorno = extraerCodigoRetorno(respuesta);
+    const mensajeRetorno = extraerMensajeRetorno(respuesta) || 'Sin mensaje de SET';
+    const estadoResultado = extraerEstadoResultado(respuesta); // Aprobado | Rechazado
+    const idEventoSET =
+      (typeof respuesta === 'object' ? buscarEnRespuesta(respuesta, 'dProtAut') : null);
 
-      // Determinar estado según código de retorno
-      if (codigoRetorno !== '0000') {
-        estadoEvento = 'rechazado';
-      }
-    } catch (err) {
-      console.warn('⚠️ No se pudo parsear respuesta de SET:', err.message);
-    }
+    // 0600/0601 = evento registrado segun el Manual Tecnico v150.
+    // Codigos de "ya cancelado" (idempotentes para una cancelación, el DTE
+    // está efectivamente cancelado — se marca localmente igual):
+    //   4003 = "CDC ya se encuentra con el mismo evento solicitado"
+    //          (respuesta real de SET producción al reenviar la cancelación)
+    //   4155/4204 = "El CDC del DTE ya ha sido cancelado con anterioridad"
+    const yaCancelado = tipoEvento === 'cancelacion' &&
+      ['4003', '4155', '4204'].includes(codigoRetorno);
+    const registrado = estadoResultado === 'Aprobado' || codigoRetorno === '0600' ||
+      codigoRetorno === '0601' || yaCancelado;
+    const estadoEvento = registrado ? 'registrado' : 'rechazado';
+
+    console.log(`📥 SET respondio al evento: ${codigoRetorno ?? 'sin codigo'} (${estadoEvento}) - ${mensajeRetorno}`);
 
     // ========================================
     // 6. Guardar evento en BD
@@ -265,7 +234,24 @@ async function enviarEvento(params) {
     console.log(`✅ Evento guardado en BD: ${evento._id}`);
 
     // ========================================
-    // 7. Retornar resultado
+    // 7. Actualizar estado de la factura
+    // ========================================
+    // Una cancelación registrada en SET anula el DTE: se refleja en la
+    // factura local para que no compute en la contabilidad.
+    if (registrado && tipoEvento === 'cancelacion') {
+      invoice.estadoSifen = 'cancelado';
+      await invoice.save();
+      console.log(`🚫 Factura ${invoice.correlativo} marcada como cancelada`);
+
+      // Estado final nuevo: la integración se entera por el webhook (sin
+      // email: el KUDE solo se manda para aceptado/observado). Es el único
+      // lugar que cancela: /api/eventos/enviar y /bulk/cancelar pasan por acá.
+      const { notificarFacturaFinal } = require('./notificacionService');
+      notificarFacturaFinal(invoice._id.toString());
+    }
+
+    // ========================================
+    // 8. Retornar resultado
     // ========================================
     return {
       success: true,

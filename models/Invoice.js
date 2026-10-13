@@ -40,7 +40,7 @@ const invoiceSchema = new mongoose.Schema({
   },
   estadoSifen: {
     type: String,
-    enum: ['recibido', 'procesando', 'enviado', 'aceptado', 'rechazado', 'error', 'encolado', 'observado'],
+    enum: ['recibido', 'procesando', 'enviado', 'aceptado', 'rechazado', 'error', 'encolado', 'observado', 'cancelado'],
     default: 'recibido'
   },
   fechaEnvio: {
@@ -87,6 +87,9 @@ const invoiceSchema = new mongoose.Schema({
     },
     digestValue: {
       type: String  // dDigVal - Digest Value de la respuesta
+    },
+    protocolo: {
+      type: String  // dProtAut - Número de protocolo de autorización (comprobante de que SET aprobó el DTE)
     }
   },
   // Estado visual para el frontend (según código de retorno)
@@ -109,6 +112,15 @@ const invoiceSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true  // ← El hash SÍ debe ser único (combina todos los campos oficiales)
+  },
+  // Header Idempotency-Key con que la integración pidió la emisión. Una
+  // repetición con la misma clave devuelve esta factura en vez de crear otra
+  // (facturaService.crearFactura). No es único: tras un rechazo o una
+  // cancelación la misma clave emite de nuevo y manda la más reciente vigente.
+  claveIdempotencia: {
+    type: String,
+    index: true,
+    sparse: true
   },
   // ========================================
   // CAMPO PARA CONTROL DE PROCESO

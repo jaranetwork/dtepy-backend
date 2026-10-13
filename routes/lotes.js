@@ -3,16 +3,22 @@ const router = express.Router();
 const LoteEnvio = require('../models/LoteEnvio');
 const Invoice = require('../models/Invoice');
 const envioLoteService = require('../services/envioLoteService');
-const { verificarToken } = require('../middleware/auth');
+const { verificarToken, verificarPermiso } = require('../middleware/auth');
+const { cargarAlcance, filtroEmpresa, perteneceAlAlcance } = require('../middleware/alcance');
 
-router.use(verificarToken);
+router.use(verificarToken, verificarPermiso('facturas:leer'), cargarAlcance);
 
 router.get('/list', async (req, res) => {
   try {
-    const { estado, empresaId, tipoDocumento, page = 1, limit = 20 } = req.query;
+    const { estado, empresaId, tipoDocumento, page = 1, limit = 20, rucEmpresa } = req.query;
     const filtro = {};
     if (estado) filtro.estado = estado;
     if (empresaId) filtro.empresaId = empresaId;
+    if (rucEmpresa) {
+      const Empresa = require('../models/Empresa');
+      const empresa = await Empresa.findOne({ ruc: String(rucEmpresa) }).select('_id');
+      filtro.empresaId = empresa ? empresa._id : null;
+    }
     if (tipoDocumento) filtro.tipoDocumento = parseInt(tipoDocumento);
 
     const options = {
@@ -20,6 +26,8 @@ router.get('/list', async (req, res) => {
       limit: parseInt(limit),
       skip: (parseInt(page) - 1) * parseInt(limit)
     };
+
+    Object.assign(filtro, filtroEmpresa(req));
 
     const lotes = await LoteEnvio.find(filtro, null, options)
       .populate('empresaId', 'ruc nombreFantasia razonSocial')
@@ -46,7 +54,7 @@ router.get('/:id', async (req, res) => {
       .populate('empresaId', 'ruc nombreFantasia razonSocial')
       .populate('facturas.facturaId', 'correlativo cdc estadoSifen xmlPath');
 
-    if (!lote) {
+    if (!lote || !perteneceAlAlcance(req, lote.empresaId)) {
       return res.status(404).json({ success: false, error: 'LOTE_NOT_FOUND', message: 'Lote no encontrado' });
     }
 
@@ -58,8 +66,13 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-router.post('/enviar/:id', async (req, res) => {
+router.post('/enviar/:id', verificarPermiso('facturas:crear'), async (req, res) => {
   try {
+    const loteDoc = await LoteEnvio.findById(req.params.id).select('empresaId');
+    if (!loteDoc || !perteneceAlAlcance(req, loteDoc.empresaId)) {
+      return res.status(404).json({ success: false, error: 'LOTE_NOT_FOUND', message: 'Lote no encontrado' });
+    }
+
     const lote = await envioLoteService.enviarLote(req.params.id);
     res.json({ success: true, data: lote, message: 'Lote enviado a SIFEN' });
   } catch (error) {
@@ -69,7 +82,7 @@ router.post('/enviar/:id', async (req, res) => {
   }
 });
 
-router.post('/enviar-pendientes', async (req, res) => {
+router.post('/enviar-pendientes', verificarPermiso('facturas:crear'), async (req, res) => {
   try {
     const resultados = await envioLoteService.enviarPendientes();
     res.json({ success: true, data: resultados });
@@ -80,8 +93,13 @@ router.post('/enviar-pendientes', async (req, res) => {
   }
 });
 
-router.post('/consultar/:id', async (req, res) => {
+router.post('/consultar/:id', verificarPermiso('facturas:crear'), async (req, res) => {
   try {
+    const loteDoc = await LoteEnvio.findById(req.params.id).select('empresaId');
+    if (!loteDoc || !perteneceAlAlcance(req, loteDoc.empresaId)) {
+      return res.status(404).json({ success: false, error: 'LOTE_NOT_FOUND', message: 'Lote no encontrado' });
+    }
+
     const resultado = await envioLoteService.consultarResultadoLote(req.params.id);
     res.json({ success: true, data: resultado });
   } catch (error) {
@@ -91,12 +109,12 @@ router.post('/consultar/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', verificarPermiso('facturas:eliminar'), async (req, res) => {
   try {
     const { id } = req.params;
 
     const lote = await LoteEnvio.findById(id);
-    if (!lote) {
+    if (!lote || !perteneceAlAlcance(req, lote.empresaId)) {
       return res.status(404).json({ success: false, error: 'LOTE_NOT_FOUND', message: 'Lote no encontrado' });
     }
 

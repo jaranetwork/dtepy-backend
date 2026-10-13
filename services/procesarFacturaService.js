@@ -5,6 +5,7 @@
  */
 
 const Invoice = require('../models/Invoice');
+const { generarIdSifen } = require('../utils/idSifen');
 const Empresa = require('../models/Empresa');
 const certificadoService = require('./certificadoService');
 const path = require('path');
@@ -21,16 +22,30 @@ const {
   determinarEstadoSegunCodigo,
   determinarEstadoVisual
 } = require('../utils/estadoSifen');
+const { aplicaRedondeoSedeco } = require('../utils/redondeoSedeco');
 
 // Librerías SIFEN
 const FacturaElectronicaPY = require('facturacionelectronicapy-xmlgen').default;
 const xmlsign = require('facturacionelectronicapy-xmlsign').default;
 const qr = require('facturacionelectronicapy-qrgen').default;
-const kude = require('facturacionelectronicapy-kude').default;
+const { generarKudePdf } = require('./kudeRunner');
 
 // Importar wrapper de SET API (soporta Mock y Producción)
 const setApi = require('./setapi-wrapper');
 const envioLoteService = require('./envioLoteService');
+
+/**
+ * Total general del documento (dTotGralOpe, F014) tal como quedó en el XML:
+ * ítems menos descuentos y anticipos, menos el redondeo SEDECO si aplicó.
+ * Es lo que realmente se factura. null si el XML no lo trae (nota de
+ * remisión) o no es un número.
+ */
+function extraerTotalGeneral(xml) {
+  const coincidencia = String(xml || '').match(/<(?:\w+:)?dTotGralOpe>\s*([^<]+?)\s*<\/(?:\w+:)?dTotGralOpe>/);
+  if (!coincidencia) return null;
+  const total = Number(coincidencia[1]);
+  return Number.isFinite(total) ? total : null;
+}
 
 /**
  * Procesa una factura electrónica completa
@@ -78,6 +93,15 @@ async function procesarFactura(datosFactura, empresaId, job = null, invoiceId = 
     // 2. Usar datos directamente del JSON
     // ========================================
     const datosCompletos = datosFactura.data || datosFactura;
+
+    // El CDC lleva un codigo de seguridad de 9 digitos. Si la integracion no
+    // lo manda, xmlgen NO lo valida y arma un CDC con la palabra "undefined"
+    // adentro: un documento firmado pero corrupto. Se genera uno aca.
+    if (!datosCompletos.codigoSeguridadAleatorio) {
+      datosCompletos.codigoSeguridadAleatorio = String(crypto.randomInt(1, 1e9)).padStart(9, '0');
+      console.log('🎲 codigoSeguridadAleatorio generado:', datosCompletos.codigoSeguridadAleatorio);
+    }
+
     await reportarProgreso(15);
 
     // ========================================
@@ -87,26 +111,42 @@ async function procesarFactura(datosFactura, empresaId, job = null, invoiceId = 
     const param = datosFactura.param || {};
     const timbrado = param.timbradoNumero || datosCompletos.timbrado || empresa.configuracionSifen.timbrado;
 
-    // Calcular fecha de timbrado (usar la del param o la de la factura)
-    let timbradoFecha;  // Por defecto
+    // Fecha de inicio de vigencia del timbrado (dFeIniT): payload > empresa >
+    // fecha de la factura como último recurso.
+    let timbradoFecha;
     if (param.timbradoFecha) {
       timbradoFecha = param.timbradoFecha;
+    } else if (empresa.configuracionSifen?.timbradoFecha) {
+      timbradoFecha = empresa.configuracionSifen.timbradoFecha;
     } else if (datosCompletos.fecha) {
       // Extraer solo la fecha (YYYY-MM-DD) sin hora ni microsegundos
       timbradoFecha = datosCompletos.fecha.split('T')[0];
     }
+
+    // Datos del emisor: lo que el payload no trae sale de la configuración de
+    // la empresa (establecimientos, actividades, tipo de contribuyente, etc.),
+    // así las integraciones pueden mandar solo cliente + items.
+    const establecimientosEmpresa = empresa.establecimientos?.length
+      ? empresa.establecimientos.map((e) => (e.toObject ? e.toObject() : e))
+      : undefined;
+    const actividadesEmpresa = empresa.actividadesEconomicas?.length
+      ? empresa.actividadesEconomicas.map((a) => (a.toObject ? a.toObject() : a))
+      : undefined;
 
     const params = {
       version: param.version || 150,
       ruc: param.ruc || empresa.ruc,
       razonSocial: param.razonSocial || empresa.razonSocial || param.nombreFantasia,
       nombreFantasia: param.nombreFantasia || empresa.nombreFantasia,
-      actividadesEconomicas: param.actividadesEconomicas,
+      actividadesEconomicas: param.actividadesEconomicas || actividadesEmpresa,
       timbradoNumero: timbrado,
       timbradoFecha: timbradoFecha,
-      tipoContribuyente: param.tipoContribuyente,
-      tipoRegimen: param.tipoRegimen,
-      establecimientos: param.establecimientos
+      tipoContribuyente: param.tipoContribuyente ?? empresa.tipoContribuyente,
+      // xmlgen emite cTipReg SIEMPRE (su guarda "typeof x != undefined" está
+      // rota): si queda undefined sale <cTipReg/> vacío y SET rechaza con
+      // "0160 cTipReg inválido". 8 = Régimen Contable como último recurso.
+      tipoRegimen: param.tipoRegimen ?? empresa.tipoRegimen ?? 8,
+      establecimientos: param.establecimientos || establecimientosEmpresa
     };
 
     await reportarProgreso(25);
@@ -120,7 +160,15 @@ async function procesarFactura(datosFactura, empresaId, job = null, invoiceId = 
     // La librería facturacionelectronicapy-xmlgen NO acepta fechas con 'Z' o milisegundos
     convertirFechasASIFEN(datosCompletos);  // ← Modifica el objeto en su lugar (sin reasignar)
 
-    const xmlGenerado = await FacturaElectronicaPY.generateXMLDE(params, datosCompletos, {});
+    // xmlgen redondea a múltiplos de 50 Gs por defecto; solo corresponde con
+    // pago 100 % en efectivo (utils/redondeoSedeco.js).
+    const redondeoSedeco = aplicaRedondeoSedeco(datosCompletos);
+    console.log(`🧮 Redondeo SEDECO: ${redondeoSedeco ? 'aplicado (pago en efectivo)' : 'no aplica'}`);
+
+    const xmlGenerado = await FacturaElectronicaPY.generateXMLDE(params, datosCompletos, { redondeoSedeco });
+    // El total que calculó facturaService es provisorio (sale del payload); el
+    // del XML es el del documento, con descuentos y redondeo incluidos.
+    const totalDocumento = extraerTotalGeneral(xmlGenerado);
     await reportarProgreso(35);
 
     // ========================================
@@ -164,11 +212,17 @@ async function procesarFactura(datosFactura, empresaId, job = null, invoiceId = 
           const Invoice = require('../models/Invoice');
           const updateData = {};
           if (digestValueFirma) updateData.digestValue = digestValueFirma;
-          if (cdcFirma) updateData.cdc = cdcFirma;
+          if (cdcFirma) {
+            updateData.cdc = cdcFirma;
+            // El CDC es la verdad sobre est-punto-numero del DTE: se refleja
+            // en el correlativo local (un reintento pudo cambiar el punto).
+            updateData.correlativo = `${cdcFirma.slice(11, 14)}-${cdcFirma.slice(14, 17)}-${cdcFirma.slice(17, 24)}`;
+          }
 
           if (Object.keys(updateData).length > 0) {
             await Invoice.findByIdAndUpdate(invoiceId, {
               ...updateData,
+              ...(totalDocumento !== null ? { total: totalDocumento } : {}),
               estadoSifen: 'enviado'  // Cambiar a 'enviado' mientras se procesa en SET
             });
           } else {
@@ -291,7 +345,7 @@ async function procesarFactura(datosFactura, empresaId, job = null, invoiceId = 
     // 10. Enviar a SET (modo normal)
     // ========================================
     console.log('📤 Enviando a SET...');
-    const idDocumento = crypto.randomBytes(16).toString('hex');
+    const idDocumento = generarIdSifen();
 
     let soapResponse = null;
     let errorEnvio = null;
@@ -381,8 +435,6 @@ async function generarKUDE(xmlContenido, cdc, correlativo, fechaCreacion, datosF
 
     const fs = require('fs');
     const path = require('path');
-    const java8Path = process.env.JAVA8_HOME || process.env.JAVA_HOME || 'java';
-    const srcJasper =  path.join(__dirname, `../node_modules/facturacionelectronicapy-kude/dist/DE/`);
 
     const destFolder = path.join(__dirname, `../de_output`,
                                   empresa.ruc,
@@ -390,16 +442,19 @@ async function generarKUDE(xmlContenido, cdc, correlativo, fechaCreacion, datosF
                                   String(fechaCreacion.getMonth() + 1).padStart(2, '0'), '/');
                                   
     const env = empresa.configuracionSifen.modo;
+    // Convención de la plantilla jasper: "0" imprime "Ambiente NO CONECTADO
+    // a la SET" (contingencia), "1" imprime "Ambiente de PRUEBA", cualquier
+    // otro valor no imprime leyenda (producción normal). Antes producción
+    // mandaba "0" y todos los KUDE salían con la leyenda de contingencia.
     const jsonParam = {
-      ambiente: env == "produccion" ? "0" : "1",
+      ambiente: env == "produccion" ? "2" : "1",
       LOGO_URL: empresa?.configuracionSifen?.urlLogo || "https://res.cloudinary.com/dficj0aam/image/upload/v1775702075/invoice_axiuol.png",
       active: true,
       template: datosFactura?.data?.templateFactura || datosFactura?.templateFactura || "normal"
     };
-    const jsonPDF = JSON.stringify(jsonParam);
 
     // ========================================
-    // CREAR ARCHIVO TEMPORAL SIN ESPACIOS PARA EL JAR
+    // CREAR ARCHIVO TEMPORAL PARA EL JAR
     // ========================================
     const nombreTemporal = `xml_temp_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.xml`;
     const dirTemporal = path.join(__dirname, '../de_output');
@@ -416,7 +471,11 @@ async function generarKUDE(xmlContenido, cdc, correlativo, fechaCreacion, datosF
     }
 
     try {
-      await kude.generateKUDE(java8Path, archivoTemporal, srcJasper, destFolder, JSON.stringify(jsonPDF));
+      await generarKudePdf({
+        xmlPath: archivoTemporal,
+        destFolder,
+        params: jsonParam
+      });
     } finally {
       if (archivoTemporal && fs.existsSync(archivoTemporal)) {
         try {
@@ -499,5 +558,6 @@ async function generarKUDE(xmlContenido, cdc, correlativo, fechaCreacion, datosF
 
 module.exports = {
   procesarFactura,
-  generarKUDE
+  generarKUDE,
+  extraerTotalGeneral
 };

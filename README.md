@@ -47,13 +47,23 @@ cd dtepy-backend
 # Instalar dependencias
 npm install
 
-# Aplicar parches a librerías
-node patch-kude.js
-
 # Configurar variables de entorno
 cp .env.example .env
 # Editar .env con tus credenciales
+# OBLIGATORIO: definir un JWT_SECRET propio (el servidor no arranca sin uno):
+node -e "console.log('JWT_SECRET=' + require('crypto').randomBytes(48).toString('hex'))" >> .env
+
+# Instalaciones existentes: eliminar las API Keys en texto plano de la BD
+# (las keys siguen funcionando; solo se borra la copia en claro)
+node migrations/002-apikeys-sin-clave-plana.js
+
+# Verificar el entorno de generación de PDF (KUDE)
+npm run kude:doctor
 ```
+
+> Ya no hace falta parchear `node_modules`. Los artefactos propios de KUDE
+> (`CreateKude.jar` y las plantillas `.jasper`) viven en `assets/kude/` y se le
+> pasan al JAR por parámetro. Ver [Generación de KUDE (PDF)](#generación-de-kude-pdf).
 
 ### Ejecución
 
@@ -71,6 +81,29 @@ npm start
 # Terminal 2 - Worker
 npm run worker
 ```
+
+## 📖 Documentación de la API
+
+La API está documentada con **OpenAPI 3.0**. Con el servidor levantado:
+
+| Recurso | URL |
+|---|---|
+| Swagger UI (interactivo) | `http://localhost:8081/api/docs` |
+| Especificación en JSON | `http://localhost:8081/api/openapi.json` |
+
+Ambos son públicos y no requieren autenticación. Cubren los 57 endpoints:
+facturación, facturas, empresas y certificados, eventos SIFEN, lotes, cola,
+API Keys, logs y estadísticas.
+
+Desde Swagger UI se pueden probar los endpoints directamente: usá el botón
+**Authorize** con un JWT (de `/api/auth/login`) o una API Key. El token queda
+guardado entre recargas.
+
+El JSON se puede importar en Postman o Insomnia, o usarse para generar un
+cliente con `openapi-generator`.
+
+> La especificación vive en [`docs/openapi.js`](docs/openapi.js) y está escrita
+> a mano. Al agregar o cambiar un endpoint, actualizala también.
 
 ## 📡 Endpoints Principales
 
@@ -519,7 +552,10 @@ await setApi.recibe(id, xml, 'test', certPath, password);
 dtepy-backend/
 ├── server.js                 # Servidor principal
 ├── package.json
-├── patch-kude.js            # Parche para librería KUDE
+├── assets/
+│   └── kude/
+│       ├── CreateKude.jar   # JAR propio (normaliza nombres de archivo)
+│       └── jasper/          # Plantillas .jasper personalizadas
 ├── models/
 │   ├── Invoice.js           # Modelo de factura
 │   ├── Empresa.js           # Modelo de empresa (multi-tenant)
@@ -583,3 +619,64 @@ MIT
 ## 👥 Autores
 
 Jara Network
+
+
+## Generación de KUDE (PDF)
+
+El PDF lo genera un programa Java (`CreateKude`) sobre plantillas de
+JasperReports. El proyecto usa una versión propia del JAR (normaliza los
+nombres de archivo: sin acentos ni espacios) y plantillas `.jasper`
+personalizadas (CDC completo en el PDF).
+
+### Cómo funciona
+
+Los artefactos propios están versionados en el repo:
+
+```
+assets/kude/
+├── CreateKude.jar          # JAR propio
+└── jasper/
+    ├── Factura.jasper
+    ├── Factura-Ticket.jasper
+    ├── NotaCredito.jasper
+    └── NotaDebito.jasper
+```
+
+`services/kudeRunner.js` los combina con lo que trae la librería
+`facturacionelectronicapy-kude` y arma la llamada a Java:
+
+1. **Plantillas**: copia las plantillas base de la librería a `.kude/DE/` y
+   encima pone las de `assets/kude/jasper/`. Idempotente, se puede repetir.
+   Así las plantillas que no personalizamos siguen actualizándose con la librería.
+2. **Classpath**: usa `-cp <JAR propio>:<librería>/jasperLibs/*` con la clase
+   `CreateKude`. No usa `-jar` porque el `Class-Path` del manifiesto del JAR es
+   relativo a su ubicación (esperaba estar dentro de `node_modules`).
+3. **Ejecución**: `execFile` sin shell, así las rutas pueden tener espacios y el
+   JSON de parámetros llega sin escapado.
+
+**`node_modules` no se modifica nunca.** `npm ci`, un rebuild de Docker o un
+deploy limpio no rompen nada, y no hay ningún paso manual después de instalar.
+
+### Comandos
+
+```bash
+# Verificar todo el entorno: librería, JAR, plantillas, Java,
+# y generar un PDF de prueba real
+npm run kude:doctor
+
+# Solo preparar el directorio de plantillas (opcional, para el build de Docker)
+npm run kude:prepare
+```
+
+### Requisitos
+
+- **Java 21 o superior** (el `CreateKude.jar` propio está compilado para esa
+  versión). Se resuelve con `KUDE_JAVA_PATH`, `JAVA8_HOME`, `JAVA_HOME` o el
+  `java` del `PATH`; si la variable apunta a un directorio, se usa `bin/java`.
+
+### Personalizar una plantilla
+
+1. Editá o agregá el `.jasper` en `assets/kude/jasper/`.
+2. `npm run kude:doctor` para validar.
+
+No hay que copiar nada a `node_modules`.

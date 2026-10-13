@@ -1,0 +1,486 @@
+codigo_ncm;partida;categoria
+0801.11.00.000;0801;Cocos, nueces de Brasil y de cajú
+0902.30.00.000;0902;Té
+1604.13.10.000;1604;Conservas de pescado (atún, sardinas)
+1604.14.10.000;1604;Conservas de pescado (atún, sardinas)
+1604.20.10.000;1604;Conservas de pescado (atún, sardinas)
+1704.10.00.000;1704;Golosinas sin cacao (caramelos, chicles)
+1704.90.10.000;1704;Golosinas sin cacao (caramelos, chicles)
+1704.90.90.000;1704;Golosinas sin cacao (caramelos, chicles)
+1805.00.00.000;1805;Cacao en polvo
+1806.31.10.000;1806;Chocolates y demás preparaciones con cacao
+1806.31.20.000;1806;Chocolates y demás preparaciones con cacao
+1806.32.10.000;1806;Chocolates y demás preparaciones con cacao
+1806.32.20.000;1806;Chocolates y demás preparaciones con cacao
+1806.90.00.000;1806;Chocolates y demás preparaciones con cacao
+1905.31.00.000;1905;Galletitas y productos de panadería
+1905.32.00.000;1905;Galletitas y productos de panadería
+2005.20.00.000;2005;Hortalizas preparadas (papas fritas/chips)
+2103.90.29.000;2103;Salsas y condimentos
+2106.90.30.000;2106;Preparaciones alimenticias diversas
+2204.10.10.000;2204;Vinos y espumantes
+2204.10.90.000;2204;Vinos y espumantes
+2204.21.00.000;2204;Vinos y espumantes
+2206.00.90.000;2206;Sidra y demás bebidas fermentadas
+2208.20.00.000;2208;Bebidas destiladas y licores (whisky, vodka, ron, gin, tequila)
+2208.30.20.000;2208;Bebidas destiladas y licores (whisky, vodka, ron, gin, tequila)
+2208.30.90.000;2208;Bebidas destiladas y licores (whisky, vodka, ron, gin, tequila)
+2208.50.00.000;2208;Bebidas destiladas y licores (whisky, vodka, ron, gin, tequila)
+2208.60.00.000;2208;Bebidas destiladas y licores (whisky, vodka, ron, gin, tequila)
+2208.70.00.000;2208;Bebidas destiladas y licores (whisky, vodka, ron, gin, tequila)
+2208.90.00.000;2208;Bebidas destiladas y licores (whisky, vodka, ron, gin, tequila)
+3303.00.10.000;3303;Perfumes y aguas de tocador
+3303.00.20.000;3303;Perfumes y aguas de tocador
+3304.10.00.000;3304;Maquillaje y productos para el cuidado de la piel
+3304.20.10.000;3304;Maquillaje y productos para el cuidado de la piel
+3304.20.90.000;3304;Maquillaje y productos para el cuidado de la piel
+3304.30.00.000;3304;Maquillaje y productos para el cuidado de la piel
+3304.91.00.000;3304;Maquillaje y productos para el cuidado de la piel
+3304.99.10.000;3304;Maquillaje y productos para el cuidado de la piel
+3304.99.90.000;3304;Maquillaje y productos para el cuidado de la piel
+3305.10.00.000;3305;Productos capilares (shampoo, tinturas)
+3305.30.00.000;3305;Productos capilares (shampoo, tinturas)
+3305.90.00.000;3305;Productos capilares (shampoo, tinturas)
+3307.10.00.000;3307;Preparaciones para afeitar, desodorantes
+3307.20.10.000;3307;Preparaciones para afeitar, desodorantes
+3307.20.90.000;3307;Preparaciones para afeitar, desodorantes
+3307.90.00.000;3307;Preparaciones para afeitar, desodorantes
+3401.11.90.000;3401;Jabones
+3403.11.90.000;3403;Preparaciones lubricantes
+3406.00.00.000;3406;Velas
+3506.10.90.000;3506;Colas y adhesivos preparados
+3703.20.00.000;3703;Papel fotográfico
+3924.10.00.000;3924;Vajilla y artículos de mesa/cocina de plástico
+3924.90.00.000;3924;Vajilla y artículos de mesa/cocina de plástico
+3926.10.00.000;3926;Demás manufacturas de plástico (fundas, estuches)
+3926.20.00.000;3926;Demás manufacturas de plástico (fundas, estuches)
+3926.40.00.000;3926;Demás manufacturas de plástico (fundas, estuches)
+3926.90.40.000;3926;Demás manufacturas de plástico (fundas, estuches)
+3926.90.69.000;3926;Demás manufacturas de plástico (fundas, estuches)
+3926.90.90.000;3926;Demás manufacturas de plástico (fundas, estuches)
+4014.10.00.000;4014;Artículos de higiene de caucho
+4014.90.90.000;4014;Artículos de higiene de caucho
+4202.12.10.000;4202;Valijas, mochilas, carteras, estuches
+4202.12.20.000;4202;Valijas, mochilas, carteras, estuches
+4202.19.00.000;4202;Valijas, mochilas, carteras, estuches
+4202.21.00.000;4202;Valijas, mochilas, carteras, estuches
+4202.22.10.000;4202;Valijas, mochilas, carteras, estuches
+4202.32.00.000;4202;Valijas, mochilas, carteras, estuches
+4202.92.00.000;4202;Valijas, mochilas, carteras, estuches
+4820.30.00.000;4820;Cuadernos, agendas, álbumes
+4823.90.99.000;4823;Demás papeles y cartones recortados
+5209.42.90.000;5209;Tejidos de algodón (denim)
+5404.19.90.000;5404;Monofilamentos sintéticos
+5702.49.00.000;5702;Alfombras tejidas
+6101.30.00.000;6101;Abrigos y camperas de punto, hombre
+6102.20.00.000;6102;Abrigos y camperas de punto, mujer
+6103.32.00.000;6103;Trajes, pantalones y shorts de punto, hombre
+6103.33.00.000;6103;Trajes, pantalones y shorts de punto, hombre
+6103.42.00.000;6103;Trajes, pantalones y shorts de punto, hombre
+6103.43.00.000;6103;Trajes, pantalones y shorts de punto, hombre
+6104.33.00.000;6104;Vestidos, polleras, pantalones de punto, mujer
+6104.42.00.000;6104;Vestidos, polleras, pantalones de punto, mujer
+6104.43.00.000;6104;Vestidos, polleras, pantalones de punto, mujer
+6104.44.00.000;6104;Vestidos, polleras, pantalones de punto, mujer
+6104.62.00.000;6104;Vestidos, polleras, pantalones de punto, mujer
+6104.63.00.000;6104;Vestidos, polleras, pantalones de punto, mujer
+6105.10.00.000;6105;Camisas de punto, hombre
+6105.20.00.000;6105;Camisas de punto, hombre
+6106.10.00.000;6106;Blusas de punto, mujer
+6106.20.00.000;6106;Blusas de punto, mujer
+6109.10.00.000;6109;Remeras y camisetas de punto
+6109.90.00.000;6109;Remeras y camisetas de punto
+6110.20.00.000;6110;Sweaters, pulóveres, buzos de punto
+6110.30.00.000;6110;Sweaters, pulóveres, buzos de punto
+6111.20.00.000;6111;Ropa de bebé, de punto
+6112.41.00.000;6112;Conjuntos deportivos y mallas de baño de punto
+6201.30.00.000;6201;Abrigos y camperas, hombre (no punto)
+6201.40.00.000;6201;Abrigos y camperas, hombre (no punto)
+6202.40.00.000;6202;Abrigos y camperas, mujer (no punto)
+6203.22.00.000;6203;Trajes, pantalones y shorts, hombre
+6203.32.00.000;6203;Trajes, pantalones y shorts, hombre
+6203.33.00.000;6203;Trajes, pantalones y shorts, hombre
+6203.42.00.000;6203;Trajes, pantalones y shorts, hombre
+6203.43.00.000;6203;Trajes, pantalones y shorts, hombre
+6204.13.00.000;6204;Vestidos, polleras y pantalones, mujer
+6204.43.00.000;6204;Vestidos, polleras y pantalones, mujer
+6204.44.00.000;6204;Vestidos, polleras y pantalones, mujer
+6204.53.00.000;6204;Vestidos, polleras y pantalones, mujer
+6204.62.00.000;6204;Vestidos, polleras y pantalones, mujer
+6204.63.00.000;6204;Vestidos, polleras y pantalones, mujer
+6205.20.00.000;6205;Camisas, hombre
+6205.30.00.000;6205;Camisas, hombre
+6206.30.00.000;6206;Blusas y camisas, mujer
+6206.40.00.000;6206;Blusas y camisas, mujer
+6207.11.00.000;6207;Ropa interior, hombre
+6209.20.00.000;6209;Ropa de bebé (no punto)
+6211.43.00.000;6211;Conjuntos deportivos y demás prendas
+6404.11.00.000;6404;Calzado deportivo con parte superior textil (zapatillas)
+6505.00.11.000;6505;Gorros y sombreros de punto (caps)
+6505.00.19.000;6505;Gorros y sombreros de punto (caps)
+6506.10.00.000;6506;Cascos de seguridad y demás tocados
+6601.10.00.000;6601;Paraguas y sombrillas
+6601.99.00.000;6601;Paraguas y sombrillas
+6702.10.00.000;6702;Flores y frutos artificiales
+6702.90.00.000;6702;Flores y frutos artificiales
+6703.00.00.000;6703;Cabello preparado para pelucas
+6911.10.10.000;6911;Vajilla de porcelana
+6911.10.90.000;6911;Vajilla de porcelana
+6912.00.00.000;6912;Vajilla de cerámica
+6913.90.00.000;6913;Estatuillas y adornos de cerámica
+6914.90.00.000;6914;Demás manufacturas de cerámica
+7013.28.00.000;7013;Cristalería de mesa y cocina (vasos, copas)
+7013.37.00.000;7013;Cristalería de mesa y cocina (vasos, copas)
+7013.42.90.000;7013;Cristalería de mesa y cocina (vasos, copas)
+7013.49.00.000;7013;Cristalería de mesa y cocina (vasos, copas)
+7013.91.10.000;7013;Cristalería de mesa y cocina (vasos, copas)
+7013.99.00.000;7013;Cristalería de mesa y cocina (vasos, copas)
+7020.00.90.000;7020;Demás manufacturas de vidrio
+7117.19.00.000;7117;Bisutería (joyería de fantasía)
+7117.90.00.000;7117;Bisutería (joyería de fantasía)
+7321.11.00.000;7321;Cocinas, parrillas y estufas no eléctricas de hierro
+7323.93.00.000;7323;Ollas y artículos de cocina de hierro o acero
+7323.94.00.000;7323;Ollas y artículos de cocina de hierro o acero
+7323.99.00.000;7323;Ollas y artículos de cocina de hierro o acero
+7325.10.00.000;7325;Manufacturas moldeadas de fundición
+7326.90.90.000;7326;Demás manufacturas de hierro o acero
+7615.10.00.000;7615;Ollas y artículos de cocina de aluminio
+7616.99.00.000;7616;Demás manufacturas de aluminio
+8203.20.10.000;8203;Limas, alicates, pinzas, tenazas
+8203.20.90.000;8203;Limas, alicates, pinzas, tenazas
+8203.30.00.000;8203;Limas, alicates, pinzas, tenazas
+8204.11.00.000;8204;Llaves de tuerca (fijas y ajustables)
+8204.12.00.000;8204;Llaves de tuerca (fijas y ajustables)
+8204.20.00.000;8204;Llaves de tuerca (fijas y ajustables)
+8205.40.00.000;8205;Herramientas de mano (martillos, destornilladores)
+8205.51.00.000;8205;Herramientas de mano (martillos, destornilladores)
+8205.59.00.000;8205;Herramientas de mano (martillos, destornilladores)
+8206.00.00.000;8206;Juegos de herramientas surtidas
+8211.91.00.000;8211;Cuchillos
+8211.92.10.000;8211;Cuchillos
+8211.93.20.000;8211;Cuchillos
+8212.10.20.000;8212;Navajas y máquinas de afeitar
+8213.00.00.000;8213;Tijeras
+8214.10.00.000;8214;Demás artículos de cuchillería (cortaúñas)
+8214.20.00.000;8214;Demás artículos de cuchillería (cortaúñas)
+8215.20.00.000;8215;Cubiertos (cucharas, tenedores)
+8215.99.10.000;8215;Cubiertos (cucharas, tenedores)
+8301.40.00.000;8301;Candados y cerraduras
+8306.21.00.000;8306;Estatuillas, marcos y adornos de metal común
+8306.29.00.000;8306;Estatuillas, marcos y adornos de metal común
+8306.30.00.000;8306;Estatuillas, marcos y adornos de metal común
+8414.20.00.000;8414;Ventiladores; bombas de aire e infladores
+8414.51.10.000;8414;Ventiladores; bombas de aire e infladores
+8414.51.20.000;8414;Ventiladores; bombas de aire e infladores
+8414.51.90.000;8414;Ventiladores; bombas de aire e infladores
+8418.69.31.000;8418;Refrigeración: solo la subpartida 8418.69.31 del anexo (verificar con despachante)
+8423.10.00.000;8423;Balanzas
+8443.31.11.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.31.13.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.31.14.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.31.19.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.31.91.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.31.99.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.32.29.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.32.31.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.32.34.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.32.39.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.32.40.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.32.52.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.32.59.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.32.99.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.99.22.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.99.23.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.99.29.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.99.32.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.99.33.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.99.39.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.99.42.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.99.49.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.99.50.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.99.80.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8443.99.90.000;8443;Impresoras y multifunción; tintas, tóneres y partes
+8450.11.00.000;8450;Lavarropas automáticos hasta 10 kg
+8452.10.00.000;8452;Máquinas de coser
+8467.21.00.000;8467;Herramientas eléctricas de mano (taladros, amoladoras)
+8467.29.92.000;8467;Herramientas eléctricas de mano (taladros, amoladoras)
+8467.29.99.000;8467;Herramientas eléctricas de mano (taladros, amoladoras)
+8470.10.00.000;8470;Calculadoras y cajas registradoras
+8470.50.10.000;8470;Calculadoras y cajas registradoras
+8471.30.12.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.30.19.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.30.90.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.41.00.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.49.00.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.50.10.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.50.20.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.50.30.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.50.40.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.50.90.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.60.52.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.60.53.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.60.59.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.60.62.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.60.90.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.70.10.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.70.40.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.70.90.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.80.00.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.90.11.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.90.12.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.90.14.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.90.19.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8471.90.90.000;8471;Computadoras: notebooks, desktops, tablets, unidades de disco, teclados y mouse
+8472.90.10.000;8472;Demás máquinas de oficina (cajeros automáticos)
+8473.30.11.000;8473;Partes y accesorios de computación (placas, gabinetes)
+8473.30.19.000;8473;Partes y accesorios de computación (placas, gabinetes)
+8473.30.41.000;8473;Partes y accesorios de computación (placas, gabinetes)
+8473.30.42.000;8473;Partes y accesorios de computación (placas, gabinetes)
+8473.30.49.000;8473;Partes y accesorios de computación (placas, gabinetes)
+8473.30.90.000;8473;Partes y accesorios de computación (placas, gabinetes)
+8473.40.10.000;8473;Partes y accesorios de computación (placas, gabinetes)
+8473.40.70.000;8473;Partes y accesorios de computación (placas, gabinetes)
+8473.40.90.000;8473;Partes y accesorios de computación (placas, gabinetes)
+8473.50.90.000;8473;Partes y accesorios de computación (placas, gabinetes)
+8504.31.11.000;8504;Transformadores, cargadores, rectificadores y UPS
+8504.31.19.000;8504;Transformadores, cargadores, rectificadores y UPS
+8504.31.99.000;8504;Transformadores, cargadores, rectificadores y UPS
+8504.40.10.000;8504;Transformadores, cargadores, rectificadores y UPS
+8504.40.40.000;8504;Transformadores, cargadores, rectificadores y UPS
+8506.10.12.000;8506;Pilas
+8506.10.19.000;8506;Pilas
+8506.10.20.000;8506;Pilas
+8507.50.90.000;8507;Baterías y acumuladores (powerbanks litio)
+8507.60.00.000;8507;Baterías y acumuladores (powerbanks litio)
+8507.80.00.000;8507;Baterías y acumuladores (powerbanks litio)
+8508.11.00.000;8508;Aspiradoras
+8508.19.00.000;8508;Aspiradoras
+8509.40.10.000;8509;Electrodomésticos con motor (licuadoras, batidoras, procesadoras)
+8509.40.20.000;8509;Electrodomésticos con motor (licuadoras, batidoras, procesadoras)
+8509.40.30.000;8509;Electrodomésticos con motor (licuadoras, batidoras, procesadoras)
+8509.40.40.000;8509;Electrodomésticos con motor (licuadoras, batidoras, procesadoras)
+8509.40.50.000;8509;Electrodomésticos con motor (licuadoras, batidoras, procesadoras)
+8509.40.90.000;8509;Electrodomésticos con motor (licuadoras, batidoras, procesadoras)
+8509.80.90.000;8509;Electrodomésticos con motor (licuadoras, batidoras, procesadoras)
+8510.10.00.000;8510;Afeitadoras y cortadoras de pelo eléctricas
+8510.30.00.000;8510;Afeitadoras y cortadoras de pelo eléctricas
+8510.90.11.000;8510;Afeitadoras y cortadoras de pelo eléctricas
+8513.10.10.000;8513;Linternas
+8513.10.90.000;8513;Linternas
+8516.29.00.000;8516;Pavas, calentadores, planchas, secadores de pelo, hornos eléctricos y microondas
+8516.31.00.000;8516;Pavas, calentadores, planchas, secadores de pelo, hornos eléctricos y microondas
+8516.32.00.000;8516;Pavas, calentadores, planchas, secadores de pelo, hornos eléctricos y microondas
+8516.40.00.000;8516;Pavas, calentadores, planchas, secadores de pelo, hornos eléctricos y microondas
+8516.50.00.000;8516;Pavas, calentadores, planchas, secadores de pelo, hornos eléctricos y microondas
+8516.60.00.000;8516;Pavas, calentadores, planchas, secadores de pelo, hornos eléctricos y microondas
+8516.71.00.000;8516;Pavas, calentadores, planchas, secadores de pelo, hornos eléctricos y microondas
+8516.72.00.000;8516;Pavas, calentadores, planchas, secadores de pelo, hornos eléctricos y microondas
+8516.79.20.000;8516;Pavas, calentadores, planchas, secadores de pelo, hornos eléctricos y microondas
+8516.79.90.000;8516;Pavas, calentadores, planchas, secadores de pelo, hornos eléctricos y microondas
+8517.11.00.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.13.00.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.14.10.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.14.31.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.14.39.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.14.90.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.18.30.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.18.90.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.61.30.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.61.49.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.61.99.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.15.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.29.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.34.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.39.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.41.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.49.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.52.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.54.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.55.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.56.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.59.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.62.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.72.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.77.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.79.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.94.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.62.99.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.69.00.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.71.90.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8517.79.00.000;8517;Smartphones, teléfonos, routers, módems y equipos de red
+8518.10.90.000;8518;Micrófonos, parlantes, auriculares y amplificadores
+8518.21.00.000;8518;Micrófonos, parlantes, auriculares y amplificadores
+8518.22.00.000;8518;Micrófonos, parlantes, auriculares y amplificadores
+8518.29.90.000;8518;Micrófonos, parlantes, auriculares y amplificadores
+8518.30.00.000;8518;Micrófonos, parlantes, auriculares y amplificadores
+8518.40.00.000;8518;Micrófonos, parlantes, auriculares y amplificadores
+8518.50.00.000;8518;Micrófonos, parlantes, auriculares y amplificadores
+8519.81.10.000;8519;Equipos de grabación y reproducción de sonido (parlantes portátiles)
+8519.81.90.000;8519;Equipos de grabación y reproducción de sonido (parlantes portátiles)
+8521.90.00.000;8521;Reproductores de video
+8523.29.90.000;8523;Pendrives, tarjetas de memoria, discos y soportes
+8523.49.20.000;8523;Pendrives, tarjetas de memoria, discos y soportes
+8523.49.90.000;8523;Pendrives, tarjetas de memoria, discos y soportes
+8523.51.10.000;8523;Pendrives, tarjetas de memoria, discos y soportes
+8523.51.90.000;8523;Pendrives, tarjetas de memoria, discos y soportes
+8523.52.10.000;8523;Pendrives, tarjetas de memoria, discos y soportes
+8523.52.90.000;8523;Pendrives, tarjetas de memoria, discos y soportes
+8525.50.29.000;8525;Cámaras digitales, webcams, videocámaras y transmisores
+8525.60.20.000;8525;Cámaras digitales, webcams, videocámaras y transmisores
+8525.60.90.000;8525;Cámaras digitales, webcams, videocámaras y transmisores
+8525.89.19.000;8525;Cámaras digitales, webcams, videocámaras y transmisores
+8525.89.29.000;8525;Cámaras digitales, webcams, videocámaras y transmisores
+8526.92.00.000;8526;GPS y controles remotos de radio
+8527.13.00.000;8527;Radios y receptores
+8527.19.00.000;8527;Radios y receptores
+8527.21.00.000;8527;Radios y receptores
+8527.91.00.000;8527;Radios y receptores
+8527.99.10.000;8527;Radios y receptores
+8527.99.90.000;8527;Radios y receptores
+8528.49.90.000;8528;Monitores, proyectores, Smart TVs y TV boxes
+8528.52.00.000;8528;Monitores, proyectores, Smart TVs y TV boxes
+8528.59.00.000;8528;Monitores, proyectores, Smart TVs y TV boxes
+8528.62.00.000;8528;Monitores, proyectores, Smart TVs y TV boxes
+8528.69.90.000;8528;Monitores, proyectores, Smart TVs y TV boxes
+8528.71.19.000;8528;Monitores, proyectores, Smart TVs y TV boxes
+8528.71.90.000;8528;Monitores, proyectores, Smart TVs y TV boxes
+8528.72.00.000;8528;Monitores, proyectores, Smart TVs y TV boxes
+8529.10.20.000;8529;Antenas, controles y partes de TV
+8529.10.90.000;8529;Antenas, controles y partes de TV
+8529.90.20.000;8529;Antenas, controles y partes de TV
+8529.90.90.000;8529;Antenas, controles y partes de TV
+8531.10.10.000;8531;Alarmas, timbres y porteros eléctricos
+8531.10.90.000;8531;Alarmas, timbres y porteros eléctricos
+8531.20.00.000;8531;Alarmas, timbres y porteros eléctricos
+8531.80.00.000;8531;Alarmas, timbres y porteros eléctricos
+8531.90.00.000;8531;Alarmas, timbres y porteros eléctricos
+8534.00.19.000;8534;Circuitos impresos
+8534.00.59.000;8534;Circuitos impresos
+8536.50.90.000;8536;Interruptores, enchufes y tomas
+8536.90.90.000;8536;Interruptores, enchufes y tomas
+8537.10.19.000;8537;Tableros y consolas de control eléctrico
+8537.10.20.000;8537;Tableros y consolas de control eléctrico
+8537.10.30.000;8537;Tableros y consolas de control eléctrico
+8538.90.10.000;8538;Partes de tableros eléctricos
+8539.31.19.000;8539;Lámparas y focos (incl. LED)
+8539.31.32.000;8539;Lámparas y focos (incl. LED)
+8539.31.39.000;8539;Lámparas y focos (incl. LED)
+8539.32.20.000;8539;Lámparas y focos (incl. LED)
+8539.32.30.000;8539;Lámparas y focos (incl. LED)
+8539.39.90.000;8539;Lámparas y focos (incl. LED)
+8539.51.00.000;8539;Lámparas y focos (incl. LED)
+8541.41.22.000;8541;Diodos, transistores, LEDs y paneles solares
+8541.43.00.000;8541;Diodos, transistores, LEDs y paneles solares
+8541.90.90.000;8541;Diodos, transistores, LEDs y paneles solares
+8542.31.20.000;8542;Circuitos integrados (procesadores, memorias)
+8542.31.90.000;8542;Circuitos integrados (procesadores, memorias)
+8542.32.21.000;8542;Circuitos integrados (procesadores, memorias)
+8542.32.99.000;8542;Circuitos integrados (procesadores, memorias)
+8543.70.13.000;8543;Demás aparatos eléctricos con función propia
+8543.70.19.000;8543;Demás aparatos eléctricos con función propia
+8543.70.35.000;8543;Demás aparatos eléctricos con función propia
+8543.70.39.000;8543;Demás aparatos eléctricos con función propia
+8543.70.92.000;8543;Demás aparatos eléctricos con función propia
+8544.20.00.000;8544;Cables eléctricos, USB y coaxiales
+8544.42.00.000;8544;Cables eléctricos, USB y coaxiales
+8544.70.10.000;8544;Cables eléctricos, USB y coaxiales
+8544.70.30.000;8544;Cables eléctricos, USB y coaxiales
+8544.70.90.000;8544;Cables eléctricos, USB y coaxiales
+8714.94.90.000;8714;Partes y accesorios de bicicletas
+8714.99.10.000;8714;Partes y accesorios de bicicletas
+8715.00.00.000;8715;Cochecitos de bebé
+9001.10.20.000;9001;Lentes de contacto y lentes sin montar
+9001.30.00.000;9001;Lentes de contacto y lentes sin montar
+9001.50.00.000;9001;Lentes de contacto y lentes sin montar
+9002.11.11.000;9002;Objetivos y lentes montados para cámaras
+9003.11.00.000;9003;Monturas y armazones de anteojos
+9003.19.10.000;9003;Monturas y armazones de anteojos
+9004.10.00.000;9004;Anteojos, incluidos los de sol
+9006.61.00.000;9006;Flashes fotográficos
+9017.80.10.000;9017;Instrumentos de dibujo y medición (cintas métricas)
+9023.00.00.000;9023;Modelos y aparatos de demostración
+9026.10.11.000;9026;Medidores de caudal y presión
+9028.30.31.000;9028;Contadores de electricidad/gas/agua
+9030.33.19.000;9030;Multímetros y osciloscopios
+9030.40.90.000;9030;Multímetros y osciloscopios
+9030.89.20.000;9030;Multímetros y osciloscopios
+9030.89.90.000;9030;Multímetros y osciloscopios
+9031.80.40.000;9031;Demás instrumentos de medida
+9032.89.11.000;9032;Termostatos y reguladores automáticos
+9032.89.29.000;9032;Termostatos y reguladores automáticos
+9032.89.81.000;9032;Termostatos y reguladores automáticos
+9032.89.82.000;9032;Termostatos y reguladores automáticos
+9032.89.89.000;9032;Termostatos y reguladores automáticos
+9032.90.10.000;9032;Termostatos y reguladores automáticos
+9032.90.99.000;9032;Termostatos y reguladores automáticos
+9102.11.10.000;9102;Relojes de pulsera
+9102.11.90.000;9102;Relojes de pulsera
+9102.12.10.000;9102;Relojes de pulsera
+9102.12.20.000;9102;Relojes de pulsera
+9102.12.90.000;9102;Relojes de pulsera
+9102.19.00.000;9102;Relojes de pulsera
+9102.21.00.000;9102;Relojes de pulsera
+9105.21.00.000;9105;Despertadores y relojes de pared
+9105.29.00.000;9105;Despertadores y relojes de pared
+9207.10.90.000;9207;Instrumentos musicales eléctricos (teclados, guitarras)
+9207.90.10.000;9207;Instrumentos musicales eléctricos (teclados, guitarras)
+9401.80.00.000;9401;Sillas y asientos
+9403.70.00.000;9403;Muebles de plástico y demás muebles
+9403.89.00.000;9403;Muebles de plástico y demás muebles
+9405.11.10.000;9405;Lámparas y artefactos de iluminación
+9405.11.90.900;9405;Lámparas y artefactos de iluminación
+9405.19.90.900;9405;Lámparas y artefactos de iluminación
+9405.21.00.000;9405;Lámparas y artefactos de iluminación
+9405.29.00.000;9405;Lámparas y artefactos de iluminación
+9405.31.00.000;9405;Lámparas y artefactos de iluminación
+9405.39.00.000;9405;Lámparas y artefactos de iluminación
+9405.41.00.900;9405;Lámparas y artefactos de iluminación
+9405.42.00.900;9405;Lámparas y artefactos de iluminación
+9405.49.00.900;9405;Lámparas y artefactos de iluminación
+9405.50.00.000;9405;Lámparas y artefactos de iluminación
+9405.99.00.000;9405;Lámparas y artefactos de iluminación
+9503.00.10.000;9503;Juguetes (todos: muñecas, bloques, radio control)
+9503.00.21.000;9503;Juguetes (todos: muñecas, bloques, radio control)
+9503.00.22.000;9503;Juguetes (todos: muñecas, bloques, radio control)
+9503.00.31.000;9503;Juguetes (todos: muñecas, bloques, radio control)
+9503.00.39.000;9503;Juguetes (todos: muñecas, bloques, radio control)
+9503.00.50.000;9503;Juguetes (todos: muñecas, bloques, radio control)
+9503.00.60.000;9503;Juguetes (todos: muñecas, bloques, radio control)
+9503.00.80.000;9503;Juguetes (todos: muñecas, bloques, radio control)
+9503.00.91.000;9503;Juguetes (todos: muñecas, bloques, radio control)
+9503.00.97.000;9503;Juguetes (todos: muñecas, bloques, radio control)
+9503.00.98.000;9503;Juguetes (todos: muñecas, bloques, radio control)
+9503.00.99.000;9503;Juguetes (todos: muñecas, bloques, radio control)
+9504.40.00.000;9504;Consolas y videojuegos; juegos de mesa
+9504.50.00.100;9504;Consolas y videojuegos; juegos de mesa
+9504.50.00.200;9504;Consolas y videojuegos; juegos de mesa
+9504.50.00.300;9504;Consolas y videojuegos; juegos de mesa
+9504.50.00.900;9504;Consolas y videojuegos; juegos de mesa
+9504.90.90.000;9504;Consolas y videojuegos; juegos de mesa
+9505.10.00.000;9505;Artículos de fiesta y navidad
+9505.90.00.000;9505;Artículos de fiesta y navidad
+9506.29.00.000;9506;Artículos de deporte, fitness, piscinas
+9506.31.00.000;9506;Artículos de deporte, fitness, piscinas
+9506.32.00.000;9506;Artículos de deporte, fitness, piscinas
+9506.51.00.000;9506;Artículos de deporte, fitness, piscinas
+9506.59.00.000;9506;Artículos de deporte, fitness, piscinas
+9506.61.00.000;9506;Artículos de deporte, fitness, piscinas
+9506.62.00.000;9506;Artículos de deporte, fitness, piscinas
+9506.91.00.000;9506;Artículos de deporte, fitness, piscinas
+9506.99.00.000;9506;Artículos de deporte, fitness, piscinas
+9507.10.00.000;9507;Artículos de pesca (cañas, reels)
+9507.20.00.000;9507;Artículos de pesca (cañas, reels)
+9507.30.00.000;9507;Artículos de pesca (cañas, reels)
+9603.29.00.000;9603;Cepillos y brochas
+9608.10.00.000;9608;Bolígrafos
+9608.20.00.000;9608;Bolígrafos
+9608.40.00.000;9608;Bolígrafos
+9608.60.00.000;9608;Bolígrafos
+9609.10.00.000;9609;Lápices
+9609.90.00.000;9609;Lápices
+9613.10.00.000;9613;Encendedores
+9613.20.00.000;9613;Encendedores
+9615.90.00.000;9615;Peines y hebillas
+9616.10.00.000;9616;Pulverizadores de perfume; borlas
+9617.00.10.000;9617;Termos y vasos térmicos
+9617.00.20.000;9617;Termos y vasos térmicos

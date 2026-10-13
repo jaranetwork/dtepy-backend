@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const ApiKey = require('../models/ApiKey');
+const JWT_SECRET = require('../config/jwtSecret');
 
 // Middleware para verificar el token JWT O API Key
 const verificarToken = async (req, res, next) => {
@@ -19,7 +20,7 @@ const verificarToken = async (req, res, next) => {
 
     // Intentar verificar como JWT primero
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'sifen-secret-key-change-in-production');
+      const decoded = jwt.verify(token, JWT_SECRET);
       
       // Buscar usuario en la base de datos
       const usuario = await User.findById(decoded.userId).select('-password');
@@ -115,35 +116,68 @@ const verificarAdmin = (req, res, next) => {
   next();
 };
 
-// Middleware para verificar permisos de API Key
+// Middleware para verificar permisos de API Key.
+// Una sesión JWT pasa siempre (el usuario opera con su rol); una API Key
+// tiene que declarar el permiso. Deniega por defecto: antes, una key sin
+// lista de permisos caía en un next() final y pasaba igual.
 const verificarPermiso = (permisoRequerido) => {
   return (req, res, next) => {
-    // Si es JWT, verificar rol
     if (req.tipoAutenticacion === 'jwt') {
       return next();
     }
-    
-    // Si es API Key, verificar permisos
-    if (req.apiKey && req.apiKey.permisos) {
-      if (req.apiKey.permisos.includes(permisoRequerido) || 
-          req.apiKey.permisos.includes('admin')) {
-        return next();
-      }
-      
-      return res.status(403).json({
-        success: false,
-        error: 'API Key no tiene permisos suficientes',
-        permisosRequeridos: [permisoRequerido],
-        permisosActuales: req.apiKey.permisos
-      });
+
+    const permisos = req.apiKey?.permisos || [];
+    if (permisos.includes(permisoRequerido) || permisos.includes('admin')) {
+      return next();
     }
-    
-    next();
+
+    return res.status(403).json({
+      success: false,
+      error: 'API Key no tiene permisos suficientes',
+      permisosRequeridos: [permisoRequerido],
+      permisosActuales: permisos
+    });
   };
+};
+
+// Middleware para operaciones que solo tienen sentido en una sesión de
+// usuario: gestionar credenciales (API Keys, perfil, contraseña) y
+// administrar empresas/certificados. Una API Key filtrada no debe poder
+// crear más credenciales ni cambiar la configuración tributaria.
+const requerirSesionUsuario = (req, res, next) => {
+  if (req.tipoAutenticacion !== 'jwt') {
+    return res.status(403).json({
+      success: false,
+      error: 'Esta operación requiere una sesión de usuario (no está permitida con API Key)'
+    });
+  }
+  next();
+};
+
+// Middleware para operaciones destructivas (borrado masivo de datos):
+// exige una sesión de usuario admin (JWT). Una API Key nunca alcanza,
+// aunque su dueño sea admin: una key filtrada no debe poder borrar datos
+// ni el rastro de auditoría.
+const requerirSesionAdmin = (req, res, next) => {
+  if (req.tipoAutenticacion !== 'jwt') {
+    return res.status(403).json({
+      success: false,
+      error: 'Esta operación requiere una sesión de usuario (no está permitida con API Key)'
+    });
+  }
+  if (req.usuario.rol !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      error: 'Acceso denegado. Se requiere rol de administrador'
+    });
+  }
+  next();
 };
 
 module.exports = {
   verificarToken,
   verificarAdmin,
-  verificarPermiso
+  verificarPermiso,
+  requerirSesionUsuario,
+  requerirSesionAdmin
 };

@@ -113,7 +113,34 @@ function listarCertificados() {
   });
 }
 
+/**
+ * Resuelve la ruta y contraseña del certificado de una empresa, validando
+ * que el archivo exista. Reemplaza a los viejos paths hardcodeados
+ * (`certificados/p12/certificado.p12` con contraseña '123456'), que apuntaban
+ * a un layout que ya no existe y hacían fallar las consultas a SET.
+ *
+ * @throws {Error} con statusCode 400 si la empresa no tiene certificado usable
+ */
+function resolverCertificadoEmpresa(empresa) {
+  const sinCert = () => Object.assign(
+    new Error(`La empresa ${empresa?.ruc || ''} no tiene un certificado digital cargado y activo`),
+    { statusCode: 400, errorCode: 'CERTIFICADO_NO_DISPONIBLE' }
+  );
+
+  if (!empresa?.certificado?.contrasena || empresa.certificado.activo === false) {
+    throw sinCert();
+  }
+
+  const ruta = obtenerRutaCertificado(empresa.ruc);
+  if (!fs.existsSync(ruta)) {
+    throw sinCert();
+  }
+
+  return { ruta, contrasena: descifrarContrasena(empresa.certificado.contrasena) };
+}
+
 module.exports = {
+  resolverCertificadoEmpresa,
   crearCarpetaRuc,
   obtenerRutaCertificado,
   guardarCertificado,

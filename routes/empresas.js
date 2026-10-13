@@ -5,11 +5,15 @@
 
 const express = require('express');
 const router = express.Router();
-const { verificarToken } = require('../middleware/auth');
+const { verificarToken, verificarPermiso, requerirSesionUsuario } = require('../middleware/auth');
 const { upload, manejarErrorUpload } = require('../middleware/upload');
 const empresaController = require('../controllers/empresaController');
 
-// Todas las rutas requieren autenticación
+// Todas las rutas requieren autenticación.
+// Lecturas: sesión JWT, o API Key con 'facturas:leer'.
+// Mutaciones (crear/editar/eliminar/subir certificado): SOLO sesión JWT —
+// una API Key filtrada no debe poder cambiar la configuración tributaria
+// ni reemplazar el certificado con el que se firma.
 router.use(verificarToken);
 
 /**
@@ -17,35 +21,35 @@ router.use(verificarToken);
  * @desc    Listar todas las empresas del usuario
  * @access  Privada (requiere JWT o API Key)
  */
-router.get('/', empresaController.listar);
+router.get('/', verificarPermiso('facturas:leer'), empresaController.listar);
 
 /**
  * @route   POST /api/empresas
  * @desc    Crear una nueva empresa
  * @access  Privada (requiere JWT o API Key)
  */
-router.post('/', empresaController.crear);
+router.post('/', requerirSesionUsuario, empresaController.crear);
 
 /**
  * @route   GET /api/empresas/:id
  * @desc    Obtener detalles de una empresa
  * @access  Privada (requiere JWT o API Key)
  */
-router.get('/:id', empresaController.obtener);
+router.get('/:id', verificarPermiso('facturas:leer'), empresaController.obtener);
 
 /**
  * @route   PUT /api/empresas/:id
  * @desc    Actualizar empresa existente
  * @access  Privada (requiere JWT o API Key)
  */
-router.put('/:id', empresaController.actualizar);
+router.put('/:id', requerirSesionUsuario, empresaController.actualizar);
 
 /**
  * @route   DELETE /api/empresas/:id
  * @desc    Eliminar empresa
  * @access  Privada (requiere JWT o API Key)
  */
-router.delete('/:id', empresaController.eliminar);
+router.delete('/:id', requerirSesionUsuario, empresaController.eliminar);
 
 /**
  * @route   POST /api/empresas/:id/certificado
@@ -54,6 +58,7 @@ router.delete('/:id', empresaController.eliminar);
  */
 router.post(
   '/:id/certificado',
+  requerirSesionUsuario,
   upload.single('certificado'),
   manejarErrorUpload,
   empresaController.subirCertificado
@@ -64,13 +69,13 @@ router.post(
  * @desc    Validar certificado de una empresa
  * @access  Privada (requiere JWT o API Key)
  */
-router.get('/:id/validar-certificado', empresaController.validarCertificado);
+router.get('/:id/validar-certificado', verificarPermiso('facturas:leer'), empresaController.validarCertificado);
 
 /**
  * @route   GET /api/empresas/:id/stats
  * @desc    Obtener estadísticas de una empresa
  * @access  Privada (requiere JWT o API Key)
  */
-router.get('/:id/stats', empresaController.obtenerStats);
+router.get('/:id/stats', verificarPermiso('facturas:leer'), empresaController.obtenerStats);
 
 module.exports = router;

@@ -4,6 +4,7 @@
  */
 
 const Empresa = require('../models/Empresa');
+const { filtroEmpresasVisibles, filtroEmpresasAdministrables, tipoAccesoEmpresa } = require('../middleware/alcance');
 const certificadoService = require('../services/certificadoService');
 const Invoice = require('../models/Invoice');
 const LoteEnvio = require('../models/LoteEnvio');
@@ -11,12 +12,140 @@ const Evento = require('../models/Evento');
 const ApiKey = require('../models/ApiKey');
 
 /**
- * Listar todas las empresas del usuario autenticado
+ * Normaliza los códigos de establecimiento a 3 dígitos ('1' -> '001').
+ */
+function normalizarEstablecimientos(establecimientos) {
+  if (!Array.isArray(establecimientos)) return establecimientos;
+  return establecimientos.map((est) => ({
+    ...est,
+    codigo: String(est.codigo || '').padStart(3, '0')
+  }));
+}
+
+/**
+ * Valida la configuración de notificaciones. Devuelve mensaje de error o
+ * null; normaliza el objeto en el lugar (genera webhookSecret si falta).
+ */
+async function validarNotificaciones(notificaciones, usuarioId) {
+  if (!notificaciones) return null;
+  if (notificaciones.smtpProviderId !== undefined) {
+    if (!notificaciones.smtpProviderId) {
+      notificaciones.smtpProviderId = null;   // vacío = usar SMTP_* del entorno
+    } else {
+      const mongoose = require('mongoose');
+      if (!mongoose.isValidObjectId(notificaciones.smtpProviderId)) {
+        return 'smtpProviderId inválido';
+      }
+      const SmtpProvider = require('../models/SmtpProvider');
+      const provider = await SmtpProvider.findOne({ _id: notificaciones.smtpProviderId, usuarioId });
+      if (!provider) {
+        return 'smtpProviderId no corresponde a un proveedor SMTP del usuario';
+      }
+    }
+  }
+  if (notificaciones.webhookUrl === '' || notificaciones.webhookUrl === null) {
+    notificaciones.webhookUrl = undefined;   // vacío = desactivar webhook
+  } else if (notificaciones.webhookUrl !== undefined) {
+    if (!/^https?:\/\/.+/i.test(notificaciones.webhookUrl)) {
+      return 'webhookUrl inválida: debe ser una URL http(s)';
+    }
+    // si activan webhook sin secreto, se genera uno (para la firma HMAC)
+    if (notificaciones.webhookSecret === undefined || notificaciones.webhookSecret === '') {
+      const crypto = require('crypto');
+      notificaciones.webhookSecret = crypto.randomBytes(24).toString('hex');
+    }
+  }
+  if (notificaciones.emailAutomatico !== undefined && typeof notificaciones.emailAutomatico !== 'boolean') {
+    return 'emailAutomatico debe ser true o false';
+  }
+  return null;
+}
+
+/**
+ * Valida los datos de emisor configurables de la empresa. Devuelve el
+ * mensaje de error o null si todo está bien.
+ */
+function validarDatosEmisor({ configuracionSifen, actividadesEconomicas, establecimientos }) {
+  if (configuracionSifen) {
+    for (const campo of ['establecimiento', 'puntoExpedicion']) {
+      if (configuracionSifen[campo] === '' || configuracionSifen[campo] === null) {
+        delete configuracionSifen[campo];   // vacío = mantener el actual
+      } else if (configuracionSifen[campo] !== undefined) {
+        if (!/^\d{1,3}$/.test(String(configuracionSifen[campo]))) {
+          return `${campo} inválido: debe ser numérico de 1 a 3 dígitos (ej. "001")`;
+        }
+        configuracionSifen[campo] = String(configuracionSifen[campo]).padStart(3, '0');
+      }
+    }
+    if (configuracionSifen.timbradoFecha === '' || configuracionSifen.timbradoFecha === null) {
+      delete configuracionSifen.timbradoFecha;  // el match de mongoose no acepta ''
+    } else if (configuracionSifen.timbradoFecha && !/^\d{4}-\d{2}-\d{2}$/.test(configuracionSifen.timbradoFecha)) {
+      return 'timbradoFecha inválida: formato YYYY-MM-DD (fecha de inicio de vigencia del timbrado)';
+    }
+    if (configuracionSifen.monedasPermitidas !== undefined) {
+      if (!Array.isArray(configuracionSifen.monedasPermitidas) || configuracionSifen.monedasPermitidas.length === 0) {
+        return 'monedasPermitidas debe ser un array con al menos una moneda (ej. ["PYG","USD"])';
+      }
+      configuracionSifen.monedasPermitidas = configuracionSifen.monedasPermitidas.map((m) => String(m).trim().toUpperCase());
+      for (const m of configuracionSifen.monedasPermitidas) {
+        if (!/^[A-Z]{3}$/.test(m)) {
+          return `Moneda "${m}" inválida en monedasPermitidas: código ISO 4217 de 3 letras (ej. PYG, USD)`;
+        }
+      }
+    }
+  }
+  if (actividadesEconomicas !== undefined && actividadesEconomicas !== null) {
+    if (!Array.isArray(actividadesEconomicas)) {
+      return 'actividadesEconomicas debe ser un array de { codigo, descripcion }';
+    }
+    for (const act of actividadesEconomicas) {
+      if (!act?.codigo || !act?.descripcion) {
+        return 'Cada actividad económica necesita codigo y descripcion';
+      }
+    }
+  }
+  if (establecimientos !== undefined && establecimientos !== null) {
+    if (!Array.isArray(establecimientos)) {
+      return 'establecimientos debe ser un array';
+    }
+    for (const est of establecimientos) {
+      if (!est?.codigo || !/^\d{1,3}$/.test(String(est.codigo))) {
+        return 'Cada establecimiento necesita un codigo numérico de 1 a 3 dígitos';
+      }
+      if (!est?.denominacion) {
+        return `El establecimiento ${est.codigo} necesita denominacion (nombre de la sucursal)`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Empresa tal como la ve este token: agrega `acceso` (propietario |
+ * administrador | compartida) y `puedeAdministrar`. Quien solo tiene acceso
+ * compartido opera los documentos pero no ve los secretos de la empresa
+ * (CSC, secreto del webhook) ni la lista de quiénes más tienen acceso.
+ */
+function vistaEmpresa(req, empresa) {
+  const obj = empresa.toObject();
+  obj.acceso = tipoAccesoEmpresa(req, empresa);
+  obj.puedeAdministrar = obj.acceso !== 'compartida';
+  if (!obj.puedeAdministrar) {
+    if (obj.configuracionSifen) delete obj.configuracionSifen.csc;
+    if (obj.notificaciones) delete obj.notificaciones.webhookSecret;
+    delete obj.usuariosConAcceso;
+  }
+  return obj;
+}
+
+/**
+ * Listar las empresas que ve el usuario autenticado: las propias, las
+ * compartidas con él y, si es admin, todas.
  * GET /api/empresas
  */
 exports.listar = async (req, res) => {
   try {
-    const empresas = await Empresa.find({ usuarioId: req.usuario._id })
+    const empresas = await Empresa.find(filtroEmpresasVisibles(req))
       .select('-certificado.contrasena')
       .sort({ nombreFantasia: 1 });
     
@@ -24,7 +153,7 @@ exports.listar = async (req, res) => {
     const empresasConInfo = empresas.map(empresa => {
       const infoCertificado = certificadoService.obtenerInfoCertificado(empresa.ruc);
       return {
-        ...empresa.toObject(),
+        ...vistaEmpresa(req, empresa),
         certificadoEnFileSystem: infoCertificado?.existe || false
       };
     });
@@ -53,7 +182,7 @@ exports.obtener = async (req, res) => {
     
     const empresa = await Empresa.findOne({
       _id: id,
-      usuarioId: req.usuario._id
+      ...filtroEmpresasVisibles(req)
     }).select('-certificado.contrasena');
     
     if (!empresa) {
@@ -69,7 +198,7 @@ exports.obtener = async (req, res) => {
     res.json({
       success: true,
       data: {
-        ...empresa.toObject(),
+        ...vistaEmpresa(req, empresa),
         certificadoEnFileSystem: infoCertificado?.existe || false
       }
     });
@@ -94,6 +223,11 @@ exports.crear = async (req, res) => {
       nombreFantasia,
       razonSocial,
       configuracionSifen,
+      tipoContribuyente,
+      tipoRegimen,
+      actividadesEconomicas,
+      establecimientos,
+      notificaciones,
       direccion,
       telefono,
       email
@@ -105,6 +239,15 @@ exports.crear = async (req, res) => {
         success: false,
         error: 'RUC, nombre de fantasía y razón social son requeridos'
       });
+    }
+
+    const errorEmisor = validarDatosEmisor({ configuracionSifen, actividadesEconomicas, establecimientos });
+    if (errorEmisor) {
+      return res.status(400).json({ success: false, error: errorEmisor });
+    }
+    const errorNotif = await validarNotificaciones(notificaciones, req.usuario._id);
+    if (errorNotif) {
+      return res.status(400).json({ success: false, error: errorNotif });
     }
 
     // Limpiar RUC (eliminar guiones y otros caracteres no numéricos)
@@ -125,6 +268,11 @@ exports.crear = async (req, res) => {
       nombreFantasia,
       razonSocial,
       configuracionSifen,
+      tipoContribuyente,
+      tipoRegimen,
+      actividadesEconomicas,
+      establecimientos: normalizarEstablecimientos(establecimientos),
+      notificaciones,
       direccion,
       telefono,
       email,
@@ -163,15 +311,24 @@ exports.actualizar = async (req, res) => {
       nombreFantasia,
       razonSocial,
       configuracionSifen,
+      tipoContribuyente,
+      tipoRegimen,
+      actividadesEconomicas,
+      establecimientos,
+      notificaciones,
       direccion,
       telefono,
       email,
       activo
     } = req.body;
 
+    const errorEmisor = validarDatosEmisor({ configuracionSifen, actividadesEconomicas, establecimientos });
+    if (errorEmisor) {
+      return res.status(400).json({ success: false, error: errorEmisor });
+    }
     const empresa = await Empresa.findOne({
       _id: id,
-      usuarioId: req.usuario._id
+      ...filtroEmpresasAdministrables(req)
     });
 
     if (!empresa) {
@@ -179,6 +336,13 @@ exports.actualizar = async (req, res) => {
         success: false,
         error: 'Empresa no encontrada'
       });
+    }
+
+    // El proveedor SMTP tiene que ser del dueño de la empresa: quien edita
+    // puede ser un administrador que no es el dueño.
+    const errorNotif = await validarNotificaciones(notificaciones, empresa.usuarioId);
+    if (errorNotif) {
+      return res.status(400).json({ success: false, error: errorNotif });
     }
 
     // Actualizar RUC si se proporciona y es diferente
@@ -218,13 +382,16 @@ exports.actualizar = async (req, res) => {
       // Validar CSC si se proporciona (debe ser 32 caracteres hexadecimales)
       if (configuracionSifen.csc) {
         const cscLimpio = configuracionSifen.csc.trim();
-        if (!/^[0-9A-F]{32}$/i.test(cscLimpio)) {
+        if (!/^[0-9A-Fa-f]{32}$/.test(cscLimpio)) {
           return res.status(400).json({
             success: false,
             error: 'CSC inválido. Debe ser 32 caracteres hexadecimales'
           });
         }
-        configuracionSifen.csc = cscLimpio.toUpperCase();
+        // OJO: el CSC es case-sensitive tal como lo entrega SET. Antes se
+        // hacía toUpperCase() y el hash del QR (SHA-256 sobre el CSC) nunca
+        // coincidía: SET rechazaba todo con "2501: hash del QR inválido".
+        configuracionSifen.csc = cscLimpio;
       }
       // Validar timbrado si se proporciona (debe ser 8 dígitos)
       if (configuracionSifen.timbrado) {
@@ -257,6 +424,16 @@ exports.actualizar = async (req, res) => {
         ...configuracionSifen
       };
     }
+    if (notificaciones !== undefined) {
+      empresa.notificaciones = {
+        ...(empresa.notificaciones?.toObject ? empresa.notificaciones.toObject() : empresa.notificaciones),
+        ...notificaciones
+      };
+    }
+    if (tipoContribuyente !== undefined) empresa.tipoContribuyente = tipoContribuyente;
+    if (tipoRegimen !== undefined) empresa.tipoRegimen = tipoRegimen || undefined;
+    if (actividadesEconomicas !== undefined) empresa.actividadesEconomicas = actividadesEconomicas;
+    if (establecimientos !== undefined) empresa.establecimientos = normalizarEstablecimientos(establecimientos);
     if (direccion !== undefined) empresa.direccion = direccion;
     if (telefono !== undefined) empresa.telefono = telefono;
     if (email !== undefined) empresa.email = email;
@@ -306,7 +483,7 @@ exports.subirCertificado = async (req, res) => {
     
     const empresa = await Empresa.findOne({
       _id: id,
-      usuarioId: req.usuario._id
+      ...filtroEmpresasAdministrables(req)
     });
     
     if (!empresa) {
@@ -362,7 +539,7 @@ exports.validarCertificado = async (req, res) => {
     
     const empresa = await Empresa.findOne({
       _id: id,
-      usuarioId: req.usuario._id
+      ...filtroEmpresasVisibles(req)
     });
     
     if (!empresa) {
@@ -408,7 +585,7 @@ exports.eliminar = async (req, res) => {
     
     const empresa = await Empresa.findOne({
       _id: id,
-      usuarioId: req.usuario._id
+      ...filtroEmpresasAdministrables(req)
     });
     
     if (!empresa) {
@@ -478,7 +655,7 @@ exports.obtenerStats = async (req, res) => {
     
     const empresa = await Empresa.findOne({
       _id: id,
-      usuarioId: req.usuario._id
+      ...filtroEmpresasVisibles(req)
     });
     
     if (!empresa) {
